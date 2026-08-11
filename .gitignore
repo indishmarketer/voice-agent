@@ -23,3 +23,4 @@ venv/
 .DS_Store
 Thumbs.db
 MY-SECRETS.local.txt
+coolify-env.local.txt
