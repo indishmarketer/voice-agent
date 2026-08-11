@@ -1,0 +1,40 @@
+services:
+  voice-agent:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Secrets come from Coolify's environment variables, not from this file.
+      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY}
+      POLLINATIONS_API_KEY: ${POLLINATIONS_API_KEY}
+      FISH_API_KEY: ${FISH_API_KEY}
+      FISH_MODEL_ID: ${FISH_MODEL_ID}
+      SECRET_KEY: ${SECRET_KEY}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      SHEETS_WEBHOOK_URL: ${SHEETS_WEBHOOK_URL:-}
+      SHEETS_WEBHOOK_SECRET: ${SHEETS_WEBHOOK_SECRET:-}
+      SESSION_MAX_SECONDS: ${SESSION_MAX_SECONDS:-180}
+      SESSIONS_PER_IP_PER_DAY: ${SESSIONS_PER_IP_PER_DAY:-3}
+      GLOBAL_SESSIONS_PER_DAY: ${GLOBAL_SESSIONS_PER_DAY:-120}
+      GLOBAL_STT_SECONDS_PER_DAY: ${GLOBAL_STT_SECONDS_PER_DAY:-3600}
+      MAX_CONCURRENT_SESSIONS: ${MAX_CONCURRENT_SESSIONS:-8}
+      DATA_DIR: /app/data
+      KNOWLEDGE_DIR: /app/knowledge
+    volumes:
+      # Keeps the database and any uploaded knowledge across redeploys.
+      - agent-data:/app/data
+      - agent-knowledge:/app/knowledge
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  agent-data:
+  agent-knowledge:

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Agent — Admin</title>
+    <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 32px 20px; background: #0f1115; color: #f3f4f6;
+            font: 15px/1.55 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        .wrap { max-width: 1080px; margin: 0 auto; }
+        h1 { font-size: 22px; margin: 0 0 4px; }
+        .sub { color: #9ca3af; font-size: 13px; margin-bottom: 28px; }
+        h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 1px;
+             color: #9ca3af; margin: 34px 0 12px; }
+        .cards { display: grid; gap: 12px;
+                 grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+        .card { background: #1a1d24; border: 1px solid #262b35; border-radius: 12px;
+                padding: 16px; }
+        .card .n { font-size: 26px; font-weight: 600; }
+        .card .l { color: #9ca3af; font-size: 12px; text-transform: uppercase;
+                   letter-spacing: .5px; margin-top: 4px; }
+        .scroll { overflow-x: auto; border: 1px solid #262b35; border-radius: 12px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px;
+                min-width: 760px; }
+        th, td { text-align: left; padding: 10px 12px;
+                 border-bottom: 1px solid #262b35; vertical-align: top; }
+        th { background: #171a21; color: #9ca3af; font-weight: 500;
+             white-space: nowrap; }
+        td.wrap-cell { max-width: 320px; }
+        .pill { display: inline-block; padding: 2px 9px; border-radius: 99px;
+                font-size: 11px; font-weight: 600; }
+        .yes { background: rgba(16,185,129,.15); color: #10b981; }
+        .no  { background: rgba(156,163,175,.15); color: #9ca3af; }
+        .warn { background: rgba(245,158,11,.15); color: #f59e0b; }
+        form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        input[type=file] { color: #9ca3af; font-size: 13px; }
+        button { background: #5e6ad2; color: #fff; border: 0; border-radius: 8px;
+                 padding: 9px 16px; font-size: 13px; cursor: pointer; }
+        button:hover { background: #7380eb; }
+        code { background: #171a21; padding: 2px 6px; border-radius: 5px;
+               font-size: 12px; }
+        .empty { color: #9ca3af; padding: 18px 12px; }
+        #kb-out { color: #10b981; font-size: 13px; }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <h1>Voice Agent Admin</h1>
+    <div class="sub">Usage for {{ usage.day }} (UTC) · {{ active }} call(s) in progress</div>
+
+    <h2>Usage</h2>
+    <div class="cards">
+        <div class="card"><div class="n">{{ usage.sessions_today }}</div><div class="l">Calls today</div></div>
+        <div class="card"><div class="n">{{ usage.stt_minutes_today }}</div><div class="l">STT minutes today</div></div>
+        <div class="card"><div class="n">{{ usage.turns_today }}</div><div class="l">Turns today</div></div>
+        <div class="card"><div class="n">{{ usage.stt_hours_total }}</div><div class="l">STT hours all-time</div></div>
+        <div class="card"><div class="n">{{ usage.sessions_total }}</div><div class="l">Calls all-time</div></div>
+        <div class="card"><div class="n">{{ usage.leads_total }}</div><div class="l">Leads captured</div></div>
+    </div>
+
+    <h2>Protection</h2>
+    <div class="cards">
+        <div class="card">
+            <div class="n">
+                {% if turnstile_on %}<span class="pill yes">ON</span>
+                {% else %}<span class="pill warn">OFF</span>{% endif %}
+            </div>
+            <div class="l">Cloudflare Turnstile</div>
+        </div>
+        {% for label, value in limits.items() %}
+        <div class="card"><div class="n">{{ value }}</div><div class="l">{{ label }}</div></div>
+        {% endfor %}
+    </div>
+
+    <h2>Knowledge base</h2>
+    <div class="card">
+        <p style="margin-top:0">
+            Mode: <code>{{ kb.mode }}</code> ·
+            {{ kb.chunks }} sections · {{ kb.characters }} characters ·
+            files: {{ kb.files | join(', ') if kb.files else 'none yet' }}
+        </p>
+        <p style="color:#9ca3af;font-size:13px">
+            In <code>inline</code> mode the agent sees the whole knowledge base on
+            every turn. Once it grows past the inline limit it automatically
+            switches to <code>retrieval</code> and only pulls the sections that
+            match what the caller asked.
+        </p>
+        <form id="kb-form">
+            <input type="file" name="file" accept=".md" required>
+            <button type="submit">Upload .md</button>
+            <button type="button" id="kb-reload">Reload from disk</button>
+            <span id="kb-out"></span>
+        </form>
+    </div>
+
+    <h2>Leads</h2>
+    <div class="scroll">
+    <table>
+        <tr>
+            <th>When</th><th>Name</th><th>Email</th><th>Phone</th>
+            <th>Company</th><th>Problem</th><th>Interest</th><th>Sheet</th>
+        </tr>
+        {% for lead in leads %}
+        <tr>
+            <td>{{ lead.created_at | int | string }}</td>
+            <td>{{ lead.name or '—' }}</td>
+            <td>{{ lead.email or '—' }}</td>
+            <td>{{ lead.phone or '—' }}</td>
+            <td>{{ lead.company or '—' }}</td>
+            <td class="wrap-cell">{{ lead.problem or '—' }}</td>
+            <td>{{ lead.interest or '—' }}</td>
+            <td>
+                {% if lead.synced %}<span class="pill yes">synced</span>
+                {% else %}<span class="pill no">local</span>{% endif %}
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="empty">No leads captured yet.</td></tr>
+        {% endfor %}
+    </table>
+    </div>
+</div>
+
+<script>
+const TOKEN = {{ token | tojson }};
+const out = document.getElementById("kb-out");
+
+document.getElementById("kb-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    out.textContent = "Uploading…";
+    const body = new FormData(event.target);
+    const res = await fetch("/admin/knowledge?token=" + encodeURIComponent(TOKEN),
+        { method: "POST", body });
+    const data = await res.json().catch(() => ({}));
+    out.textContent = res.ok ? "Uploaded. Reloading…" : (data.error || "Failed.");
+    if (res.ok) setTimeout(() => location.reload(), 700);
+});
+
+document.getElementById("kb-reload").addEventListener("click", async () => {
+    out.textContent = "Reloading…";
+    await fetch("/admin/knowledge/reload?token=" + encodeURIComponent(TOKEN),
+        { method: "POST" });
+    location.reload();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ brand }} — Voice Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+    {% if turnstile_site_key %}
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+    {% endif %}
+</head>
+<body>
+    <div class="app-container">
+
+        <!-- Welcome / Dial Screen -->
+        <div id="dial-screen" class="screen active">
+            <div class="brand">
+                <div class="logo">✨</div>
+                <h1>{{ brand }}</h1>
+                <p>Intelligent Voice Assistant</p>
+            </div>
+
+            <button id="btn-dial" class="btn-dial" aria-label="Start call">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M22 16.92V19.92C22 20.4504 21.7893 20.9591 21.4142 21.3342C21.0391 21.7093 20.5304 21.92 20 21.92C16.897 21.7374 13.9015 20.6974 11.27 18.9C8.82483 17.2644 6.73557 15.1752 5.09999 12.73C3.2952 10.0863 2.25368 7.07849 2.07999 3.95999C2.07999 3.42956 2.29071 2.92084 2.66578 2.54577C3.04085 2.1707 3.54956 1.95999 4.07999 1.95999H7.07999C7.52554 1.95546 7.95874 2.11585 8.30064 2.41214C8.64253 2.70842 8.8703 3.12134 8.94999 3.56999C9.07662 4.52988 9.31343 5.4716 9.65499 6.37999C9.79153 6.74109 9.80582 7.13521 9.69466 7.50503C9.5835 7.87484 9.35246 8.20092 9.03499 8.44999L6.76499 10.72C8.18843 13.2246 10.2354 15.2716 12.74 16.695L15.01 14.425C15.2591 14.1075 15.5851 13.8765 15.955 13.7653C16.3248 13.6542 16.7189 13.6685 17.08 13.805C17.9884 14.1466 18.9301 14.3834 19.89 14.51C20.3421 14.5902 20.7583 14.8213 21.0567 15.1678C21.3552 15.5143 21.5146 15.9515 21.5 16.4V16.92H22Z" fill="white"/>
+                </svg>
+            </button>
+            <div class="dial-text">Tap to Call</div>
+            <p class="mic-hint">
+                Your microphone is used only while you are speaking. Calls are
+                limited to a few minutes each.
+            </p>
+            <div id="turnstile-holder"></div>
+        </div>
+
+        <!-- Active Call Screen -->
+        <div id="call-screen" class="screen">
+            <div class="call-header">
+                <div class="profile-pic">
+                    <img src="https://ui-avatars.com/api/?name=Indish+Agent&background=5e6ad2&color=fff&size=128" alt="Agent">
+                </div>
+                <h2>{{ agent_name }}</h2>
+                <div id="call-status" class="call-status">Connecting…</div>
+                <div id="call-timer" class="call-timer">--:--</div>
+            </div>
+
+            <div class="audio-waves" id="audio-waves">
+                <div class="wave"></div>
+                <div class="wave"></div>
+                <div class="wave"></div>
+                <div class="wave"></div>
+                <div class="wave"></div>
+            </div>
+
+            <div class="transcript-box">
+                <div id="transcript-text" class="transcript-text">Calling…</div>
+            </div>
+
+            <div class="call-controls">
+                <button id="btn-mute" class="btn-control btn-mute" aria-label="Mute microphone">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" fill="currentColor"/>
+                        <path d="M19 11a7 7 0 0 1-14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+                        <path d="M12 18v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <button id="btn-end" class="btn-control end-call" aria-label="End call">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M22 16.92V19.92C22 20.4504 21.7893 20.9591 21.4142 21.3342C21.0391 21.7093 20.5304 21.92 20 21.92C16.897 21.7374 13.9015 20.6974 11.27 18.9C8.82483 17.2644 6.73557 15.1752 5.09999 12.73C3.2952 10.0863 2.25368 7.07849 2.07999 3.95999C2.07999 3.42956 2.29071 2.92084 2.66578 2.54577C3.04085 2.1707 3.54956 1.95999 4.07999 1.95999H7.07999C7.52554 1.95546 7.95874 2.11585 8.30064 2.41214C8.64253 2.70842 8.8703 3.12134 8.94999 3.56999C9.07662 4.52988 9.31343 5.4716 9.65499 6.37999C9.79153 6.74109 9.80582 7.13521 9.69466 7.50503C9.5835 7.87484 9.35246 8.20092 9.03499 8.44999L6.76499 10.72C8.18843 13.2246 10.2354 15.2716 12.74 16.695L15.01 14.425C15.2591 14.1075 15.5851 13.8765 15.955 13.7653C16.3248 13.6542 16.7189 13.6685 17.08 13.805C17.9884 14.1466 18.9301 14.3834 19.89 14.51C20.3421 14.5902 20.7583 14.8213 21.0567 15.1678C21.3552 15.5143 21.5146 15.9515 21.5 16.4V16.92H22Z" fill="white" transform="rotate(135 12 12)"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div id="notice" class="notice"></div>
+    </div>
+
+    <script>
+        window.__TURNSTILE_SITE_KEY__ = {{ (turnstile_site_key or "") | tojson }};
+    </script>
+    <script src="{{ url_for('static', path='app.js') }}"></script>
+</body>
+</html>

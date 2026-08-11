@@ -1,0 +1,25 @@
+# Secrets - never commit these
+.env
+.env.*
+!.env.example
+
+# Runtime state
+data/
+*.db
+*.db-wal
+*.db-shm
+*.wav
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+MY-SECRETS.local.txt
