@@ -7,10 +7,22 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
     {% if turnstile_site_key %}
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+    <script>
+        // Defined BEFORE the Turnstile script tag below, so there is no race:
+        // the CDN script calls this itself, once it has actually finished
+        // loading, rather than us guessing via turnstile.ready().
+        window.__turnstileLoaded = false;
+        window.onTurnstileLoad = function () {
+            window.__turnstileLoaded = true;
+            if (window.__onTurnstileReady) window.__onTurnstileReady();
+        };
+    </script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad&render=explicit" async defer></script>
     {% endif %}
 </head>
 <body>
+    <div class="bg-orbs" aria-hidden="true"><span></span><span></span><span></span></div>
+
     <div class="app-container">
 
         <!-- Welcome / Dial Screen -->
@@ -37,8 +49,9 @@
         <!-- Active Call Screen -->
         <div id="call-screen" class="screen">
             <div class="call-header">
-                <div class="profile-pic">
-                    <img src="https://ui-avatars.com/api/?name=Indish+Agent&background=5e6ad2&color=fff&size=128" alt="Agent">
+                <div class="agent-orb" id="agent-orb" aria-hidden="true">
+                    <div class="ring"></div>
+                    <div class="core">✨</div>
                 </div>
                 <h2>{{ agent_name }}</h2>
                 <div id="call-status" class="call-status">Connecting…</div>
@@ -46,6 +59,8 @@
             </div>
 
             <div class="audio-waves" id="audio-waves">
+                <div class="wave"></div>
+                <div class="wave"></div>
                 <div class="wave"></div>
                 <div class="wave"></div>
                 <div class="wave"></div>

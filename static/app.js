@@ -32,6 +32,8 @@
   const btnMute = el("btn-mute");
   const statusEl = el("call-status");
   const wavesEl = el("audio-waves");
+  const waveBars = Array.from(wavesEl.querySelectorAll(".wave"));
+  const orbEl = el("agent-orb");
   const transcriptEl = el("transcript-text");
   const timerEl = el("call-timer");
   const noticeEl = el("notice");
@@ -45,8 +47,12 @@
     micStream: null,
     captureCtx: null,
     workletNode: null,
+    micAnalyser: null,
+    micFreqData: null,
     playCtx: null,
     playGain: null,
+    playAnalyser: null,
+    playFreqData: null,
     nextPlayTime: 0,
     scheduled: [],
     preroll: [],
@@ -58,6 +64,7 @@
     agentSpeaking: false,
     timerHandle: null,
     keepAliveHandle: null,
+    visualizerHandle: null,
     endsAt: 0,
     finished: false,
   };
@@ -100,6 +107,14 @@
     state.playCtx = new (window.AudioContext || window.webkitAudioContext)();
     state.playGain = state.playCtx.createGain();
     state.playGain.connect(state.playCtx.destination);
+
+    // Tapped for the visualizer only - it does not affect what is heard.
+    state.playAnalyser = state.playCtx.createAnalyser();
+    state.playAnalyser.fftSize = 256;
+    state.playAnalyser.smoothingTimeConstant = 0.6;
+    state.playFreqData = new Uint8Array(state.playAnalyser.frequencyBinCount);
+    state.playGain.connect(state.playAnalyser);
+
     state.nextPlayTime = 0;
   }
 
@@ -142,6 +157,73 @@
     if (state.playCtx) state.nextPlayTime = state.playCtx.currentTime;
   }
 
+  // --- Visualizer -------------------------------------------------------
+  //
+  // The orb glow and the wave bars are driven every frame from real audio
+  // amplitude - the caller's own mic while listening, the synthesized speech
+  // while the agent talks - not a canned CSS loop. Nothing else on the page
+  // animates on its own; the ambient background blobs are the only exception,
+  // and those are decorative and independent of the call.
+
+  const BAR_COUNT = waveBars.length;
+  const barLevels = new Array(BAR_COUNT).fill(0);
+  let orbLevel = 0;
+
+  function bandLevel(freqData, band, bands) {
+    // Ignore the very top of the spectrum - it is mostly noise for both a
+    // 16 kHz mic feed and 24 kHz speech, and skip bin 0 (DC offset).
+    const usable = Math.max(2, Math.floor(freqData.length * 0.65));
+    const start = Math.max(1, Math.floor((band / bands) * usable));
+    const end = Math.max(start + 1, Math.floor(((band + 1) / bands) * usable));
+    let sum = 0;
+    for (let i = start; i < end; i++) sum += freqData[i];
+    return sum / (end - start) / 255;
+  }
+
+  function visualizerFrame() {
+    let source = null;
+    if (state.agentSpeaking && state.playAnalyser) {
+      state.playAnalyser.getByteFrequencyData(state.playFreqData);
+      source = state.playFreqData;
+    } else if (state.streaming && state.micAnalyser) {
+      state.micAnalyser.getByteFrequencyData(state.micFreqData);
+      source = state.micFreqData;
+    }
+
+    for (let i = 0; i < BAR_COUNT; i++) {
+      const raw = source ? bandLevel(source, i, BAR_COUNT) : 0;
+      // sqrt gives a perceptual curve - quiet sounds are still visible.
+      const target = Math.sqrt(raw);
+      // Fast attack, slower release, so bars react instantly but don't flicker.
+      const rate = target > barLevels[i] ? 0.55 : 0.14;
+      barLevels[i] += (target - barLevels[i]) * rate;
+      waveBars[i].style.height = (8 + barLevels[i] * 44).toFixed(1) + "px";
+    }
+
+    const avg = barLevels.reduce((a, b) => a + b, 0) / BAR_COUNT;
+    // A very low idle baseline while a call is connected keeps the orb from
+    // looking dead between turns, without reading as "the whole UI moving".
+    const baseline = state.active ? 0.045 : 0;
+    orbLevel += (Math.max(avg, baseline) - orbLevel) * 0.18;
+    if (orbEl) orbEl.style.setProperty("--level", orbLevel.toFixed(3));
+
+    state.visualizerHandle = requestAnimationFrame(visualizerFrame);
+  }
+
+  function startVisualizer() {
+    if (state.visualizerHandle) return;
+    state.visualizerHandle = requestAnimationFrame(visualizerFrame);
+  }
+
+  function stopVisualizer() {
+    if (state.visualizerHandle) cancelAnimationFrame(state.visualizerHandle);
+    state.visualizerHandle = null;
+    barLevels.fill(0);
+    orbLevel = 0;
+    waveBars.forEach((bar) => { bar.style.height = "8px"; });
+    if (orbEl) orbEl.style.setProperty("--level", "0");
+  }
+
   // --- Microphone capture and gating ---------------------------------------
 
   async function startCapture() {
@@ -168,6 +250,13 @@
     const silent = state.captureCtx.createGain();
     silent.gain.value = 0;
     state.workletNode.connect(silent).connect(state.captureCtx.destination);
+
+    // Tapped for the visualizer only, in parallel with the worklet above.
+    state.micAnalyser = state.captureCtx.createAnalyser();
+    state.micAnalyser.fftSize = 64;
+    state.micAnalyser.smoothingTimeConstant = 0.5;
+    state.micFreqData = new Uint8Array(state.micAnalyser.frequencyBinCount);
+    source.connect(state.micAnalyser);
   }
 
   function onAudioBlock({ pcm, rms }) {
@@ -347,26 +436,94 @@
     });
   }
 
+  // --- Turnstile --------------------------------------------------------
+  //
+  // Rendered ONCE, up front, in "execute" mode. Re-rendering into the same
+  // div on every dial click (the old approach) throws on the second attempt,
+  // which silently produced an empty token forever after. Here we render one
+  // widget and call turnstile.execute() per attempt instead.
+  //
+  // If verification keeps failing, open devtools -> Console: the warning
+  // below prints Cloudflare's actual error code, which is almost always a
+  // domain mismatch between this page's origin and the domain list configured
+  // on the Turnstile site key in the Cloudflare dashboard.
+
+  let turnstileWidgetId = null;
+  let turnstilePending = null;
+
+  function renderTurnstile() {
+    turnstileWidgetId = window.turnstile.render("#turnstile-holder", {
+      sitekey: window.__TURNSTILE_SITE_KEY__,
+      size: "invisible",
+      execution: "execute",
+      callback: (token) => {
+        if (turnstilePending) { turnstilePending(token); turnstilePending = null; }
+      },
+      "error-callback": (code) => {
+        console.warn("[Turnstile] verification failed, code:", code,
+          "- if this persists, check the domain list on this site key in "
+          + "the Cloudflare dashboard.");
+        if (turnstilePending) { turnstilePending(""); turnstilePending = null; }
+      },
+      "expired-callback": () => {
+        if (turnstilePending) { turnstilePending(""); turnstilePending = null; }
+      },
+    });
+  }
+
+  function initTurnstile() {
+    if (!window.__TURNSTILE_SITE_KEY__) return;
+    // The CDN script calls window.onTurnstileLoad itself once it is truly
+    // ready (see templates/index.html) - that beats guessing with a timer
+    // or with turnstile.ready(), which can fire before api.js has finished
+    // installing the real implementation.
+    if (window.__turnstileLoaded) {
+      renderTurnstile();
+    } else {
+      window.__onTurnstileReady = renderTurnstile;
+    }
+  }
+
+  async function getTurnstileToken() {
+    if (!window.__TURNSTILE_SITE_KEY__) return "";
+
+    // Slow connection: the CDN script may not have finished by the time
+    // someone clicks Dial. Give it a couple of seconds rather than silently
+    // sending an unverified request (which the server would then reject).
+    for (let waited = 0; turnstileWidgetId === null && waited < 3000; waited += 100) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (turnstileWidgetId === null || !window.turnstile) {
+      console.warn("[Turnstile] widget never became ready.");
+      return "";
+    }
+    return new Promise((resolve) => {
+      turnstilePending = resolve;
+      try {
+        window.turnstile.reset(turnstileWidgetId);
+        window.turnstile.execute(turnstileWidgetId);
+      } catch (err) {
+        console.warn("[Turnstile] execute() threw:", err);
+        turnstilePending = null;
+        resolve("");
+        return;
+      }
+      setTimeout(() => {
+        if (turnstilePending === resolve) {
+          console.warn("[Turnstile] timed out waiting for a token.");
+          turnstilePending = null;
+          resolve("");
+        }
+      }, 8000);
+    });
+  }
+
+  initTurnstile();
+
   // --- Call lifecycle -------------------------------------------------------
 
   async function requestSession() {
-    let turnstileToken = "";
-    if (window.__TURNSTILE_SITE_KEY__ && window.turnstile) {
-      try {
-        turnstileToken = await new Promise((resolve) => {
-          window.turnstile.ready(() => {
-            window.turnstile.render("#turnstile-holder", {
-              sitekey: window.__TURNSTILE_SITE_KEY__,
-              callback: resolve,
-              "error-callback": () => resolve(""),
-              size: "invisible",
-            });
-          });
-          setTimeout(() => resolve(""), 8000);
-        });
-      } catch (_) { /* fall through, server decides */ }
-    }
-
+    const turnstileToken = await getTurnstileToken();
     const response = await fetch("/api/session/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -398,6 +555,7 @@
       await Promise.all([openSttSocket(), openAgentSocket()]);
 
       startTimer(state.session.max_seconds);
+      startVisualizer();
       setStatus("Connected", "");
       send(state.agentSocket, { type: "start" });
     } catch (error) {
@@ -424,6 +582,7 @@
 
     clearInterval(state.timerHandle);
     clearInterval(state.keepAliveHandle);
+    stopVisualizer();
     stopPlayback();
 
     if (state.sttSocket && state.sttSocket.readyState === WebSocket.OPEN) {
@@ -441,6 +600,7 @@
     state.workletNode = null;
     state.captureCtx = null;
     state.micStream = null;
+    state.micAnalyser = null;
     state.session = null;
     state.preroll = [];
     state.streaming = false;
