@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import datetime
 import logging
+import secrets
 import time
 import uuid
 from typing import Any, AsyncIterator, Optional
@@ -21,11 +22,11 @@ from fastapi import (
     Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile, File,
     WebSocket, WebSocketDisconnect,
 )
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import config, fillers, leads, llm, prompts, security, stt, store, tts
+from . import branding, config, fillers, leads, llm, mailer, prompts, security, stt, store, tts
 from .knowledge import KB
 
 logging.basicConfig(
@@ -111,12 +112,14 @@ def _set_visitor_cookie(response: Response, visitor_id: str) -> None:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> Response:
     visitor_id, is_new = _visitor_id_from(request)
+    current_branding = branding.get_branding()
     response = templates.TemplateResponse(
         "index.html",
         {
             "request": request,
-            "brand": config.BRAND_NAME,
-            "agent_name": config.AGENT_NAME,
+            "brand": current_branding["brand_name"],
+            "tagline": current_branding["tagline"],
+            "agent_name": current_branding["agent_name"],
             "turnstile_site_key": config.TURNSTILE_SITE_KEY,
         },
     )
@@ -284,14 +287,15 @@ async def _once(text: str) -> AsyncIterator[str]:
 
 
 def _greeting_for(visitor: dict[str, Any]) -> str:
+    current_branding = branding.get_branding()
     name = visitor.get("name")
     if visitor.get("session_count", 0) > 1 and name:
-        return (f"Hi {name}, welcome back to {config.BRAND_NAME}. "
+        return (f"Hi {name}, welcome back to {current_branding['brand_name']}. "
                 "What can I help you with today?")
     if visitor.get("session_count", 0) > 1:
-        return (f"Welcome back to {config.BRAND_NAME}. "
+        return (f"Welcome back to {current_branding['brand_name']}. "
                 "What can I help you with today?")
-    return config.GREETING
+    return current_branding["greeting"]
 
 
 def _history_hint(visitor_id: str) -> str:
@@ -515,8 +519,16 @@ async def _respond_with_llm(call: Call, text: str) -> None:
         text, call.visitor, _history_hint(call.visitor_id)
     )
     if call.contact_flow_done:
-        system += ("\n\nContact details have already been asked for this call - "
-                   "do not ask again, even if you would otherwise.")
+        system += (
+            "\n\nIMPORTANT: this caller's name, email and phone have already "
+            "been collected (or they declined) earlier in THIS call. Do not "
+            "ask for any contact detail again, do not say anything like "
+            "'could I get your name/email/phone', and do not emit "
+            f"{prompts.CONTACT_MARKER} again. Continue the conversation "
+            "naturally as its own next turn - do not reintroduce yourself, "
+            "greet them, or restate who you are or what the company does as "
+            "if this were the start of a new call."
+        )
     if call.remaining < 25:
         system += ("\n\nThe call is about to end. Wrap up warmly in one sentence "
                    f"and point them to {config.WEBSITE_URL}.")
@@ -544,6 +556,17 @@ async def _respond_with_llm(call: Call, text: str) -> None:
         call.awaiting_contact = True
         call.contact_nudged = False
         await call.send_json({"type": "show_contact_form", **call.contact_fields})
+    elif marker_flag["seen"] and call.contact_flow_done:
+        # The model tried to re-open contact capture despite the instruction
+        # above and despite already being told not to in the fixed prefix.
+        # The marker itself is stripped before TTS either way, but whatever
+        # sentence the model spoke immediately before it (e.g. "could I get
+        # your email") already went out over the live audio stream and cannot
+        # be un-said. Logged so a repeat-itself report can be confirmed
+        # against real call logs instead of guessed at.
+        log.warning("call %s: model re-emitted CONTACT_MARKER after "
+                    "contact_flow_done - spoken reply may have re-asked for "
+                    "contact details", call.session_id[:8])
 
 
 async def _strip_contact_marker(clauses: AsyncIterator[str],
@@ -701,10 +724,34 @@ KNOWLEDGE_TARGETS = {
 }
 
 
+ADMIN_SESSION_COOKIE = "im_admin_session"
+ADMIN_SESSION_SECONDS = 30 * 24 * 3600
+
+
+def _admin_email_from_cookie(request: Request) -> Optional[str]:
+    raw = request.cookies.get(ADMIN_SESSION_COOKIE, "")
+    if not raw:
+        return None
+    claims = security.verify(raw)
+    if not claims:
+        return None
+    email = claims.get("email", "")
+    return email if email in config.ADMIN_EMAILS else None
+
+
 def _require_admin(request: Request) -> None:
+    """Accepts EITHER the standing ?token= (a permanent "master key" useful
+    for the owner's own API/automation access) OR a valid magic-link session
+    cookie. A plain browser page load (GET) that fails both is sent to the
+    login page instead of a bare 404, since a human looking at that URL can
+    actually do something about it; an API call (POST) still just gets 404,
+    same as before - it was never meant to be user-facing."""
     token = request.query_params.get("token") or request.headers.get("x-admin-token", "")
-    if not security.is_admin(token):
-        raise HTTPException(status_code=404, detail="Not found")
+    if security.is_admin(token) or _admin_email_from_cookie(request):
+        return
+    if request.method == "GET":
+        raise HTTPException(status_code=302, headers={"Location": "/admin/login"})
+    raise HTTPException(status_code=404, detail="Not found")
 
 
 def _knowledge_file_status() -> dict[str, dict[str, Any]]:
@@ -729,18 +776,83 @@ def _knowledge_file_status() -> dict[str, dict[str, Any]]:
 
 def _admin_base_context(request: Request, active_page: str) -> dict[str, Any]:
     """Shared context every admin page needs - the sidebar, the theme toggle,
-    and whatever identifies the logged-in owner (None until magic-link login
-    is wired in, which is fine: the sidebar falls back to showing "token
-    access" instead of an email)."""
+    and whatever identifies the logged-in owner. Falls back to showing
+    "token access" instead of an email for anyone in via the standing
+    ?token= master key rather than a real magic-link login."""
     token = request.query_params.get("token", "")
+    email = _admin_email_from_cookie(request)
     return {
         "request": request,
         "active_page": active_page,
         "token": token,
         "owner_link": f"{request.url.scheme}://{request.url.netloc}/?owner={token}",
-        "owner_email": None,
-        "owner_initial": None,
+        "owner_email": email,
+        "owner_initial": email[0].upper() if email else None,
     }
+
+
+@app.get("/admin/login", response_class=HTMLResponse)
+async def admin_login_page(request: Request) -> Response:
+    if _admin_email_from_cookie(request):
+        return RedirectResponse("/admin")
+    return templates.TemplateResponse("admin_login.html", {"request": request})
+
+
+@app.post("/admin/login")
+async def admin_login_request(request: Request) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+
+    # Same response whether or not the address is on the allowlist - a
+    # different one here would let anyone probe which emails are admins.
+    if email in config.ADMIN_EMAILS:
+        if not config.BREVO_API_KEY or not config.BREVO_SENDER_EMAIL:
+            log.error("magic-link login requested but Brevo is not configured")
+            return JSONResponse(
+                {"error": "Login email is not configured yet. Use the token link instead."},
+                status_code=503,
+            )
+        login_token = secrets.token_urlsafe(32)
+        store.create_login_token(login_token, email)
+        link = f"{request.url.scheme}://{request.url.netloc}/admin/login/verify?token={login_token}"
+        try:
+            await mailer.send_login_link(email, link)
+        except Exception as exc:
+            log.error("failed to send login email to %s...: %s", email[:3], exc)
+            return JSONResponse(
+                {"error": "Could not send the email right now. Try again shortly."},
+                status_code=502,
+            )
+        log.info("magic-link sent to %s...", email[:3])
+    return JSONResponse({"ok": True})
+
+
+@app.get("/admin/login/verify")
+async def admin_login_verify(request: Request, token: str = "") -> Response:
+    email = store.consume_login_token(token)
+    if not email or email not in config.ADMIN_EMAILS:
+        return RedirectResponse("/admin/login?error=1")
+
+    response = RedirectResponse("/admin")
+    response.set_cookie(
+        ADMIN_SESSION_COOKIE,
+        security.sign({"email": email}, ADMIN_SESSION_SECONDS),
+        max_age=ADMIN_SESSION_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=True,
+    )
+    log.info("admin login: %s...", email[:3])
+    return response
+
+
+@app.post("/admin/logout")
+async def admin_logout() -> Response:
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(ADMIN_SESSION_COOKIE)
+    return response
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -801,6 +913,7 @@ async def admin_settings_page(request: Request,
     ctx.update({
         "agent_rules": prompts.active_behavior_rules(),
         "default_rules": prompts._default_behavior_rules(),
+        "branding": branding.get_branding(),
     })
     return templates.TemplateResponse("admin_settings.html", ctx)
 
@@ -822,6 +935,54 @@ async def save_admin_settings(request: Request,
     store.set_setting(prompts.SETTINGS_KEY_AGENT_RULES, rules.strip())
     log.info("admin updated agent behaviour rules (%d chars)", len(rules))
     return JSONResponse({"ok": True})
+
+
+BRANDING_TEXT_FIELDS = {
+    "brand_name": (branding.SETTINGS_KEY_BRAND_NAME, 120),
+    "tagline": (branding.SETTINGS_KEY_TAGLINE, 120),
+    "agent_name": (branding.SETTINGS_KEY_AGENT_NAME, 120),
+    "greeting": (branding.SETTINGS_KEY_GREETING, 500),
+}
+MAX_LOGO_BYTES = 5 * 1024 * 1024
+
+
+@app.post("/admin/settings/branding")
+async def save_branding(request: Request,
+                        brand_name: str = Form(""),
+                        tagline: str = Form(""),
+                        agent_name: str = Form(""),
+                        greeting: str = Form(""),
+                        logo: Optional[UploadFile] = File(None),
+                        _: None = Depends(_require_admin)) -> Response:
+    for field_name, value in (("brand_name", brand_name), ("tagline", tagline),
+                              ("agent_name", agent_name), ("greeting", greeting)):
+        limit = BRANDING_TEXT_FIELDS[field_name][1]
+        if len(value) > limit:
+            return JSONResponse(
+                {"error": f"{field_name} is too long - keep it under {limit} characters."},
+                status_code=400,
+            )
+
+    if logo is not None and logo.filename:
+        content = await logo.read()
+        if len(content) > MAX_LOGO_BYTES:
+            return JSONResponse({"error": "Logo image is too large (5MB max)."},
+                                status_code=400)
+        try:
+            branding.regenerate_logo_assets(content)
+        except Exception as exc:
+            log.warning("logo upload rejected: %s", exc)
+            return JSONResponse({"error": "That does not look like a valid image."},
+                                status_code=400)
+
+    for field_name, value in (("brand_name", brand_name), ("tagline", tagline),
+                              ("agent_name", agent_name), ("greeting", greeting)):
+        stripped = value.strip()
+        if stripped:
+            store.set_setting(BRANDING_TEXT_FIELDS[field_name][0], stripped)
+
+    log.info("admin updated branding")
+    return JSONResponse({"ok": True, "branding": branding.get_branding()})
 
 
 @app.post("/admin/knowledge")

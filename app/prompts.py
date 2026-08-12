@@ -18,7 +18,7 @@ The prompt has two layers, deliberately kept separate:
 """
 from typing import Any, Optional
 
-from . import config, store
+from . import branding, config, store
 from .knowledge import KB
 
 FIXED_PREFIX_TEMPLATE = """You are {agent_name}, the voice receptionist for {brand}.
@@ -80,9 +80,10 @@ def active_behavior_rules() -> str:
 
 def build_system_prompt(user_text: str, visitor: Optional[dict[str, Any]] = None,
                         history_hint: str = "") -> str:
+    current_branding = branding.get_branding()
     fixed = FIXED_PREFIX_TEMPLATE.format(
-        agent_name=config.AGENT_NAME,
-        brand=config.BRAND_NAME,
+        agent_name=current_branding["agent_name"],
+        brand=current_branding["brand_name"],
         contact_marker=CONTACT_MARKER,
     )
     parts = [fixed, active_behavior_rules()]

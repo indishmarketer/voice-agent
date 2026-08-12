@@ -296,6 +296,11 @@
                 <div class="n">Admin</div>
                 <div class="e">{{ owner_email or "token access" }}</div>
             </div>
+            {% if owner_email %}
+            <button type="button" id="btn-logout" class="icon-btn" aria-label="Log out" title="Log out" style="margin-left:auto">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            </button>
+            {% endif %}
         </div>
     </aside>
 
@@ -346,6 +351,14 @@ btnTheme.addEventListener("click", () => setTheme(effectiveTheme() === "dark" ? 
 if (window.matchMedia) {
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
         if (!document.documentElement.getAttribute("data-theme")) paintThemeIcon();
+    });
+}
+
+const btnLogout = document.getElementById("btn-logout");
+if (btnLogout) {
+    btnLogout.addEventListener("click", async () => {
+        await fetch("/admin/logout", { method: "POST" });
+        location.href = "/admin/login";
     });
 }
 </script>

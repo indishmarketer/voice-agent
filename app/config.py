@@ -52,6 +52,17 @@ AAI_SAMPLE_RATE = 16000
 SECRET_KEY = _env("SECRET_KEY") or secrets.token_hex(32)
 ADMIN_TOKEN = _env("ADMIN_TOKEN")
 
+# --- Magic-link admin login ---------------------------------------------
+# Sent via Brevo's HTTP transactional email API. Only addresses in
+# ADMIN_EMAILS may ever request a link - anyone else's request is silently a
+# no-op, so this list also doubles as the admin allowlist.
+BREVO_API_KEY = _env("BREVO_API_KEY")
+BREVO_SENDER_EMAIL = _env("BREVO_SENDER_EMAIL")
+BREVO_SENDER_NAME = _env("BREVO_SENDER_NAME", "Voice Agent")
+ADMIN_EMAILS = [
+    e.strip().lower() for e in _env("ADMIN_EMAILS").split(",") if e.strip()
+]
+
 # --- Abuse protection -------------------------------------------------------
 TURNSTILE_SITE_KEY = _env("TURNSTILE_SITE_KEY")
 TURNSTILE_SECRET_KEY = _env("TURNSTILE_SECRET_KEY")

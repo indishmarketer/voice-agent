@@ -4,6 +4,47 @@
 {% block page_sub %}Control how the agent behaves, without a code change or redeploy.{% endblock %}
 
 {% block content %}
+<h2 class="section">Branding</h2>
+<div class="panel" style="margin-bottom:22px">
+    <p class="hint" style="margin-bottom:14px">
+        What callers see and hear - the logo, the name on the dial screen, and
+        the first thing the agent says. This does not touch the admin
+        dashboard's own look, only the public call app.
+    </p>
+    <form id="branding-form">
+        <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;margin-bottom:16px">
+            <img id="logo-preview" src="{{ asset('img/logo.png') }}" alt="Current logo"
+                 style="width:64px;height:64px;border-radius:16px;object-fit:cover;border:1px solid var(--border)">
+            <div style="flex:1;min-width:220px">
+                <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Logo (square image works best)</label>
+                <input type="file" name="logo" id="logo-input" accept="image/*">
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px;margin-bottom:16px">
+            <div>
+                <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Brand name</label>
+                <input type="text" name="brand_name" id="brand-name-input" value="{{ branding.brand_name }}" style="width:100%">
+            </div>
+            <div>
+                <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Tagline</label>
+                <input type="text" name="tagline" id="tagline-input" value="{{ branding.tagline }}" style="width:100%">
+            </div>
+            <div>
+                <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Agent name</label>
+                <input type="text" name="agent_name" id="agent-name-input" value="{{ branding.agent_name }}" style="width:100%">
+            </div>
+        </div>
+        <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Greeting (spoken first, on every call)</label>
+            <input type="text" name="greeting" id="greeting-input" value="{{ branding.greeting }}" style="width:100%">
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button type="submit">Save branding</button>
+            <span id="branding-out" class="status-msg"></span>
+        </div>
+    </form>
+</div>
+
 <h2 class="section">Agent behaviour</h2>
 <div class="panel">
     <p class="hint" style="margin-bottom:14px">
@@ -53,6 +94,33 @@ document.getElementById("save-rules").addEventListener("click", () => saveRules(
 document.getElementById("reset-rules").addEventListener("click", () => {
     if (!confirm("Replace the current text with the default rules? This does not save until you click Save.")) return;
     textarea.value = DEFAULT_RULES;
+});
+
+const brandingOut = document.getElementById("branding-out");
+const logoInput = document.getElementById("logo-input");
+const logoPreview = document.getElementById("logo-preview");
+
+logoInput.addEventListener("change", () => {
+    const file = logoInput.files[0];
+    if (!file) return;
+    logoPreview.src = URL.createObjectURL(file);
+});
+
+document.getElementById("branding-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    brandingOut.textContent = "Saving…";
+    brandingOut.className = "status-msg";
+    const body = new FormData(event.target);
+    const res = await fetch(withToken("/admin/settings/branding"), { method: "POST", body });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+        brandingOut.textContent = "Saved. Takes effect immediately.";
+        brandingOut.className = "status-msg";
+        logoInput.value = "";
+    } else {
+        brandingOut.textContent = data.error || "Could not save - please try again.";
+        brandingOut.className = "status-msg err";
+    }
 });
 </script>
 {% endblock %}
