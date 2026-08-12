@@ -1,0 +1,58 @@
+{% extends "admin_base.html" %}
+{% block title %}Settings — Voice Agent Admin{% endblock %}
+{% block page_title %}Settings{% endblock %}
+{% block page_sub %}Control how the agent behaves, without a code change or redeploy.{% endblock %}
+
+{% block content %}
+<h2 class="section">Agent behaviour</h2>
+<div class="panel">
+    <p class="hint" style="margin-bottom:14px">
+        This is what tells the agent how to run a call - what to prioritise,
+        when to ask for contact details, how to wrap up. It is separate from
+        the company facts in your Knowledge Base, and from a small fixed set
+        of rules (how short replies must be, the internal signal that shows
+        the contact card) that always apply and are not editable here, so
+        nothing you write below can break the call flow itself.
+    </p>
+    <textarea id="rules-text" rows="16" style="width:100%;resize:vertical;line-height:1.55">{{ agent_rules }}</textarea>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
+        <button type="button" id="save-rules">Save changes</button>
+        <button type="button" id="reset-rules" class="ghost">Reset to default</button>
+        <span id="rules-out" class="status-msg"></span>
+    </div>
+</div>
+{% endblock %}
+
+{% block script_extra %}
+<script>
+const TOKEN = {{ token | tojson }};
+const DEFAULT_RULES = {{ default_rules | tojson }};
+const withToken = (path) => path + "?token=" + encodeURIComponent(TOKEN);
+const out = document.getElementById("rules-out");
+const textarea = document.getElementById("rules-text");
+
+async function saveRules(text) {
+    out.textContent = "Saving…";
+    out.className = "status-msg";
+    const res = await fetch(withToken("/admin/settings"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_rules: text }),
+    });
+    if (res.ok) {
+        out.textContent = "Saved. Takes effect on the next call.";
+        out.className = "status-msg";
+    } else {
+        out.textContent = "Could not save - please try again.";
+        out.className = "status-msg err";
+    }
+}
+
+document.getElementById("save-rules").addEventListener("click", () => saveRules(textarea.value));
+
+document.getElementById("reset-rules").addEventListener("click", () => {
+    if (!confirm("Replace the current text with the default rules? This does not save until you click Save.")) return;
+    textarea.value = DEFAULT_RULES;
+});
+</script>
+{% endblock %}

@@ -1,0 +1,139 @@
+{% extends "admin_base.html" %}
+{% block title %}Dashboard — Voice Agent Admin{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block page_sub %}Overview of your voice agent performance and usage.{% endblock %}
+
+{% macro icon_phone() %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>{% endmacro %}
+{% macro icon_clock() %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>{% endmacro %}
+{% macro icon_swap() %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4"/><path d="M3 7h18"/><path d="M7 21l-4-4 4-4"/><path d="M21 17H3"/></svg>{% endmacro %}
+{% macro icon_people() %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5"/><circle cx="17" cy="8" r="2.7"/><path d="M16 13.6c2.6.5 4.5 2.8 4.5 5.4"/></svg>{% endmacro %}
+{% macro icon_shield() %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>{% endmacro %}
+{% macro icon_share() %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="2.7"/><circle cx="6" cy="12" r="2.7"/><circle cx="18" cy="19" r="2.7"/><path d="M8.4 10.6l7.2-3.8M8.4 13.4l7.2 3.8"/></svg>{% endmacro %}
+{% macro icon_globe() %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>{% endmacro %}
+{% macro icon_lockuser() %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="7" r="3.5"/><path d="M3 20c0-3.6 2.9-6.3 7-6.3"/><rect x="14" y="13" width="8" height="7" rx="1.5"/><path d="M16 13v-1.5a2 2 0 0 1 4 0V13"/></svg>{% endmacro %}
+{% macro icon_lock() %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>{% endmacro %}
+
+{% macro delta_badge(value) %}
+{%- if value is not none -%}
+<div class="delta {{ 'up' if value >= 0 else 'down' }}">{{ '+' if value >= 0 else '' }}{{ value }}% vs yesterday</div>
+{%- endif -%}
+{% endmacro %}
+
+{% block topbar_right %}
+<span class="pill-status"><span class="live-dot"></span>{{ active }} call(s) in progress</span>
+<span class="pill-status">{{ usage.day }} UTC</span>
+{% endblock %}
+
+{% block content %}
+<h2 class="section">Usage</h2>
+<div class="cards">
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-purple-bg);color:var(--badge-purple)">{{ icon_phone() }}</div>
+        <div class="n">{{ usage.sessions_today }}</div>
+        <div class="l">Calls today</div>
+        {{ delta_badge(usage.deltas.sessions) }}
+    </div>
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-blue-bg);color:var(--badge-blue)">{{ icon_clock() }}</div>
+        <div class="n">{{ usage.stt_minutes_today }}</div>
+        <div class="l">STT minutes today</div>
+        {{ delta_badge(usage.deltas.stt) }}
+    </div>
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-green-bg);color:var(--badge-green)">{{ icon_swap() }}</div>
+        <div class="n">{{ usage.turns_today }}</div>
+        <div class="l">Turns today</div>
+        {{ delta_badge(usage.deltas.turns) }}
+    </div>
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-orange-bg);color:var(--badge-orange)">{{ icon_clock() }}</div>
+        <div class="n">{{ usage.stt_hours_total }}</div>
+        <div class="l">STT hours all-time</div>
+    </div>
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-purple-bg);color:var(--badge-purple)">{{ icon_phone() }}</div>
+        <div class="n">{{ usage.sessions_total }}</div>
+        <div class="l">Calls all-time</div>
+    </div>
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-pink-bg);color:var(--badge-pink)">{{ icon_people() }}</div>
+        <div class="n">{{ usage.leads_total }}</div>
+        <div class="l">Leads captured</div>
+        {{ delta_badge(usage.deltas.leads) }}
+    </div>
+</div>
+
+<h2 class="section">Protection</h2>
+<div class="cards">
+    <div class="card">
+        <div class="icon-badge" style="background:{{ 'var(--success-bg)' if turnstile_on else 'var(--warn-bg)' }};color:{{ 'var(--success)' if turnstile_on else 'var(--warn)' }}">{{ icon_shield() }}</div>
+        <div class="n">
+            {% if turnstile_on %}<span class="pill yes">ON</span>
+            {% else %}<span class="pill warn">OFF</span>{% endif %}
+        </div>
+        <div class="l">Cloudflare Turnstile</div>
+    </div>
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-blue-bg);color:var(--badge-blue)">{{ icon_share() }}</div>
+        <div class="n">{{ limits['Sessions per IP per day'] }}</div>
+        <div class="l">Sessions per IP per day</div>
+    </div>
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-orange-bg);color:var(--badge-orange)">{{ icon_share() }}</div>
+        <div class="n">{{ limits['Sessions per visitor per day'] }}</div>
+        <div class="l">Sessions per visitor per day</div>
+    </div>
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-purple-bg);color:var(--badge-purple)">{{ icon_globe() }}</div>
+        <div class="n">{{ limits['Global sessions per day'] }}</div>
+        <div class="l">Global sessions per day</div>
+    </div>
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-blue-bg);color:var(--badge-blue)">{{ icon_clock() }}</div>
+        <div class="n">{{ limits['Global STT minutes per day'] }}</div>
+        <div class="l">Global STT minutes per day</div>
+    </div>
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-pink-bg);color:var(--badge-pink)">{{ icon_lockuser() }}</div>
+        <div class="n">{{ limits['Max session seconds'] }}</div>
+        <div class="l">Max session seconds</div>
+    </div>
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-green-bg);color:var(--badge-green)">{{ icon_phone() }}</div>
+        <div class="n">{{ limits['Max concurrent calls'] }}</div>
+        <div class="l">Max concurrent calls</div>
+    </div>
+</div>
+
+<h2 class="section">Owner Testing Link</h2>
+<div class="panel" style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+    <div class="icon-badge" style="background:var(--badge-blue-bg);color:var(--badge-blue);margin:0">{{ icon_lock() }}</div>
+    <div style="flex:1;min-width:260px">
+        <p class="hint" style="margin:0">
+            Open this link on any device to skip Turnstile and the daily call limits
+            on that browser only - useful for testing the live site without eating
+            into the public quota.
+        </p>
+    </div>
+    <input type="text" id="owner-link" readonly value="{{ owner_link }}" style="flex:1;min-width:220px">
+    <button type="button" id="copy-link">Copy link</button>
+    <span id="copy-out" class="status-msg"></span>
+</div>
+{% endblock %}
+
+{% block script_extra %}
+<script>
+document.getElementById("copy-link").addEventListener("click", async () => {
+    const input = document.getElementById("owner-link");
+    const out = document.getElementById("copy-out");
+    try {
+        await navigator.clipboard.writeText(input.value);
+        out.textContent = "Copied!";
+    } catch (_) {
+        input.select();
+        out.textContent = "Select & copy";
+    }
+    setTimeout(() => { out.textContent = ""; }, 2000);
+});
+</script>
+{% endblock %}

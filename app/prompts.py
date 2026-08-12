@@ -1,10 +1,27 @@
-"""System prompt assembly: persona + knowledge base + what we remember."""
+"""System prompt assembly: persona + knowledge base + what we remember.
+
+The prompt has two layers, deliberately kept separate:
+
+  FIXED_PREFIX     - identity, speaking format, and the CONTACT_MARKER
+                      mechanism. Generated in code, never editable from admin.
+                      Lead capture and TTS-safe output both depend on this
+                      being present in every call, so it cannot be something
+                      a text-box edit could accidentally delete.
+
+  behaviour rules  - tone, priorities, what to ask about, when to wrap up.
+                      Editable from /admin/settings, stored as plain text in
+                      the settings table. This is raw text concatenated into
+                      the prompt, never passed through .format() - so nothing
+                      the admin types (including stray { or } characters) can
+                      ever break prompt assembly, unlike the old single
+                      PERSONA template this replaced.
+"""
 from typing import Any, Optional
 
-from . import config
+from . import config, store
 from .knowledge import KB
 
-PERSONA = """You are {agent_name}, the voice receptionist for {brand}.
+FIXED_PREFIX_TEMPLATE = """You are {agent_name}, the voice receptionist for {brand}.
 
 You are speaking on a live phone call. Everything you write is read aloud by a
 text-to-speech engine, so it must sound like natural speech.
@@ -16,28 +33,13 @@ HOW TO SPEAK
 - Never say you are an AI language model. You are the receptionist.
 - If you are interrupted, drop what you were saying and answer the new question.
 
-HOW TO HANDLE THE CALL
-- Answer from the COMPANY KNOWLEDGE below. It is the source of truth.
-- If the knowledge does not cover something, say you will have the team follow
-  up rather than inventing details. Never invent prices, timelines or claims.
-- Ask one question at a time, then stop and listen.
-- Your goal is to understand the caller's business problem, then capture a way
-  to reach them.
-
-COLLECTING CONTACT DETAILS
-- Once you genuinely understand their problem - not before - ask once, naturally,
-  for their name, email, and phone number so the team can follow up. Something
-  like: "Could I get your name and the best email to reach you, and a phone
-  number if you're happy to share one?"
-- The instant you ask that question, end your reply with the exact marker
-  {contact_marker} on its own, with nothing after it. Say it in your head, never
-  out loud - it is a signal to the system, not something to speak.
-- Do not ask for contact details more than once in a call. If they already
-  declined, or their details are already on file below, do not ask again.
+WHEN YOU DECIDE TO ASK FOR CONTACT DETAILS
+- End that reply with the exact marker {contact_marker} on its own, with
+  nothing after it. Say it in your head, never out loud - it is a signal to
+  the system, not something to speak.
 - After you have asked, the system takes over collecting and confirming the
   details on screen. Do not try to collect or repeat back contact details
   yourself in conversation after that point.
-- To end a call, thank them and mention {website}.
 """
 
 # Emitted by the model as the very last thing in a turn, once it has decided
@@ -45,17 +47,45 @@ COLLECTING CONTACT DETAILS
 # reply is ever sent to text-to-speech - the caller must never hear it.
 CONTACT_MARKER = "[[COLLECT_CONTACT]]"
 
+SETTINGS_KEY_AGENT_RULES = "agent_rules"
+
+
+def _default_behavior_rules() -> str:
+    # A plain f-string, not .format() - this only ever runs on trusted code
+    # (config values), never on admin-edited text, so there is no risk of a
+    # stray brace in this default breaking anything.
+    return f"""Answer from the company knowledge provided below. It is the
+source of truth - if it does not cover something, say you will have the team
+follow up rather than inventing details. Never invent prices, timelines or
+claims.
+
+Ask one question at a time, then stop and listen. Your goal is to understand
+the caller's business problem, then capture a way to reach them.
+
+Once you genuinely understand their problem - not before - ask once,
+naturally, for their name, email, and phone number so the team can follow up.
+Something like: "Could I get your name and the best email to reach you, and a
+phone number if you're happy to share one?" Do not ask for contact details
+more than once in a call. If they already declined, or their details are
+already on file, do not ask again.
+
+To end a call, thank them and mention {config.WEBSITE_URL}."""
+
+
+def active_behavior_rules() -> str:
+    """What /admin/settings shows and edits - the current effective rules,
+    whether that is a saved override or the seed default."""
+    return store.get_setting(SETTINGS_KEY_AGENT_RULES) or _default_behavior_rules()
+
 
 def build_system_prompt(user_text: str, visitor: Optional[dict[str, Any]] = None,
                         history_hint: str = "") -> str:
-    parts = [
-        PERSONA.format(
-            agent_name=config.AGENT_NAME,
-            brand=config.BRAND_NAME,
-            website=config.WEBSITE_URL,
-            contact_marker=CONTACT_MARKER,
-        )
-    ]
+    fixed = FIXED_PREFIX_TEMPLATE.format(
+        agent_name=config.AGENT_NAME,
+        brand=config.BRAND_NAME,
+        contact_marker=CONTACT_MARKER,
+    )
+    parts = [fixed, active_behavior_rules()]
 
     knowledge = KB.context_for(user_text)
     if knowledge:

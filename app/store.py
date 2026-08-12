@@ -6,7 +6,7 @@ import sqlite3
 import time
 import json
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from . import config
@@ -64,6 +64,23 @@ CREATE TABLE IF NOT EXISTS leads (
     transcript   TEXT,
     synced       INTEGER NOT NULL DEFAULT 0,
     created_at   REAL NOT NULL
+);
+
+-- Free-form admin-editable config (agent behaviour rules, greeting, etc.) so
+-- changing how the agent behaves does not require a code edit and redeploy.
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- Magic-link admin login. One row per link sent; used/expired ones are
+-- rejected on verification so a link only ever works once.
+CREATE TABLE IF NOT EXISTS login_tokens (
+    token      TEXT PRIMARY KEY,
+    email      TEXT NOT NULL,
+    expires_at REAL NOT NULL,
+    used       INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
 );
 """
 
@@ -269,23 +286,104 @@ def list_leads(limit: int = 100) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def usage_summary() -> dict[str, Any]:
-    day = _today()
+def _day_totals(day: str) -> dict[str, float]:
     row = _query(
         "SELECT COUNT(*) sessions, COALESCE(SUM(stt_seconds),0) stt, "
         "COALESCE(SUM(turn_count),0) turns FROM sessions WHERE day = ?",
         (day,),
     )[0]
+    leads = _query(
+        "SELECT COUNT(*) c FROM leads WHERE date(created_at, 'unixepoch') = ?",
+        (day,),
+    )[0]["c"]
+    return {"sessions": row["sessions"], "stt": row["stt"], "turns": row["turns"],
+            "leads": leads}
+
+
+def usage_summary() -> dict[str, Any]:
+    day = _today()
+    yesterday = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+
+    today = _day_totals(day)
+    prior = _day_totals(yesterday)
+
     total = _query(
         "SELECT COUNT(*) sessions, COALESCE(SUM(stt_seconds),0) stt FROM sessions"
     )[0]
-    leads = _query("SELECT COUNT(*) c FROM leads")[0]["c"]
+    leads_total = _query("SELECT COUNT(*) c FROM leads")[0]["c"]
+
     return {
         "day": day,
-        "sessions_today": row["sessions"],
-        "stt_minutes_today": round(row["stt"] / 60.0, 2),
-        "turns_today": row["turns"],
+        "sessions_today": today["sessions"],
+        "stt_minutes_today": round(today["stt"] / 60.0, 2),
+        "turns_today": today["turns"],
+        "leads_today": today["leads"],
         "sessions_total": total["sessions"],
         "stt_hours_total": round(total["stt"] / 3600.0, 2),
-        "leads_total": leads,
+        "leads_total": leads_total,
+        "deltas": {
+            "sessions": _pct_change(today["sessions"], prior["sessions"]),
+            "stt": _pct_change(today["stt"], prior["stt"]),
+            "turns": _pct_change(today["turns"], prior["turns"]),
+            "leads": _pct_change(today["leads"], prior["leads"]),
+        },
     }
+
+
+def _pct_change(today_val: float, prior_val: float) -> Optional[int]:
+    """None means 'not meaningful' (no prior-day data to compare against) -
+    the template shows no badge rather than a misleading number."""
+    if prior_val <= 0:
+        return None
+    return round((today_val - prior_val) / prior_val * 100)
+
+
+# --- Settings (admin-editable, no redeploy needed) --------------------------
+
+def get_setting(key: str, default: str = "") -> str:
+    rows = _query("SELECT value FROM settings WHERE key = ?", (key,))
+    return rows[0]["value"] if rows else default
+
+
+def get_settings(keys: list[str]) -> dict[str, str]:
+    if not keys:
+        return {}
+    placeholders = ",".join("?" * len(keys))
+    rows = _query(f"SELECT key, value FROM settings WHERE key IN ({placeholders})",
+                 tuple(keys))
+    return {r["key"]: r["value"] for r in rows}
+
+
+def set_setting(key: str, value: str) -> None:
+    _exec(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+
+
+# --- Magic-link login ---------------------------------------------------
+
+def create_login_token(token: str, email: str, ttl_seconds: int = 900) -> None:
+    now = time.time()
+    _exec(
+        "INSERT INTO login_tokens (token, email, expires_at, used, created_at) "
+        "VALUES (?, ?, ?, 0, ?)",
+        (token, email, now + ttl_seconds, now),
+    )
+
+
+def consume_login_token(token: str) -> Optional[str]:
+    """Returns the associated email if the token is valid and unused, and
+    marks it used in the same step so it can never be redeemed twice."""
+    rows = _query(
+        "SELECT email, expires_at, used FROM login_tokens WHERE token = ?",
+        (token,),
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    if row["used"] or row["expires_at"] < time.time():
+        return None
+    _exec("UPDATE login_tokens SET used = 1 WHERE token = ?", (token,))
+    return row["email"]

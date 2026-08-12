@@ -727,8 +727,45 @@ def _knowledge_file_status() -> dict[str, dict[str, Any]]:
     return status
 
 
+def _admin_base_context(request: Request, active_page: str) -> dict[str, Any]:
+    """Shared context every admin page needs - the sidebar, the theme toggle,
+    and whatever identifies the logged-in owner (None until magic-link login
+    is wired in, which is fine: the sidebar falls back to showing "token
+    access" instead of an email)."""
+    token = request.query_params.get("token", "")
+    return {
+        "request": request,
+        "active_page": active_page,
+        "token": token,
+        "owner_link": f"{request.url.scheme}://{request.url.netloc}/?owner={token}",
+        "owner_email": None,
+        "owner_initial": None,
+    }
+
+
 @app.get("/admin", response_class=HTMLResponse)
-async def admin(request: Request, _: None = Depends(_require_admin)) -> Response:
+async def admin_dashboard(request: Request,
+                          _: None = Depends(_require_admin)) -> Response:
+    ctx = _admin_base_context(request, "dashboard")
+    ctx.update({
+        "usage": store.usage_summary(),
+        "active": security.active_count(),
+        "turnstile_on": bool(config.TURNSTILE_SECRET_KEY),
+        "limits": {
+            "Sessions per IP per day": config.SESSIONS_PER_IP_PER_DAY,
+            "Sessions per visitor per day": config.SESSIONS_PER_VISITOR_PER_DAY,
+            "Global sessions per day": config.GLOBAL_SESSIONS_PER_DAY,
+            "Global STT minutes per day": config.GLOBAL_STT_SECONDS_PER_DAY // 60,
+            "Max session seconds": config.SESSION_MAX_SECONDS,
+            "Max concurrent calls": config.MAX_CONCURRENT_SESSIONS,
+        },
+    })
+    return templates.TemplateResponse("admin_dashboard.html", ctx)
+
+
+@app.get("/admin/leads", response_class=HTMLResponse)
+async def admin_leads_page(request: Request,
+                           _: None = Depends(_require_admin)) -> Response:
     leads_out = []
     for lead in store.list_leads(100):
         lead = dict(lead)
@@ -737,30 +774,54 @@ async def admin(request: Request, _: None = Depends(_require_admin)) -> Response
         ).strftime("%b %d, %H:%M")
         leads_out.append(lead)
 
-    token = request.query_params.get("token", "")
-    return templates.TemplateResponse(
-        "admin.html",
-        {
-            "request": request,
-            "token": token,
-            "owner_link": f"{request.url.scheme}://{request.url.netloc}/?owner={token}",
-            "usage": store.usage_summary(),
-            "active": security.active_count(),
-            "kb": KB.stats(),
-            "kb_files": _knowledge_file_status(),
-            "sheets_url": config.SHEETS_URL,
-            "leads": leads_out,
-            "limits": {
-                "Sessions per IP per day": config.SESSIONS_PER_IP_PER_DAY,
-                "Sessions per visitor per day": config.SESSIONS_PER_VISITOR_PER_DAY,
-                "Global sessions per day": config.GLOBAL_SESSIONS_PER_DAY,
-                "Global STT minutes per day": config.GLOBAL_STT_SECONDS_PER_DAY // 60,
-                "Max session seconds": config.SESSION_MAX_SECONDS,
-                "Max concurrent calls": config.MAX_CONCURRENT_SESSIONS,
-            },
-            "turnstile_on": bool(config.TURNSTILE_SECRET_KEY),
-        },
-    )
+    ctx = _admin_base_context(request, "leads")
+    ctx.update({"leads": leads_out, "sheets_url": config.SHEETS_URL})
+    return templates.TemplateResponse("admin_leads.html", ctx)
+
+
+@app.get("/admin/knowledge", response_class=HTMLResponse)
+async def admin_knowledge_page(request: Request,
+                               _: None = Depends(_require_admin)) -> Response:
+    ctx = _admin_base_context(request, "knowledge")
+    ctx.update({"kb": KB.stats(), "kb_files": _knowledge_file_status()})
+    return templates.TemplateResponse("admin_knowledge.html", ctx)
+
+
+@app.get("/admin/integrations", response_class=HTMLResponse)
+async def admin_integrations_page(request: Request,
+                                  _: None = Depends(_require_admin)) -> Response:
+    ctx = _admin_base_context(request, "integrations")
+    return templates.TemplateResponse("admin_integrations.html", ctx)
+
+
+@app.get("/admin/settings", response_class=HTMLResponse)
+async def admin_settings_page(request: Request,
+                              _: None = Depends(_require_admin)) -> Response:
+    ctx = _admin_base_context(request, "settings")
+    ctx.update({
+        "agent_rules": prompts.active_behavior_rules(),
+        "default_rules": prompts._default_behavior_rules(),
+    })
+    return templates.TemplateResponse("admin_settings.html", ctx)
+
+
+@app.post("/admin/settings")
+async def save_admin_settings(request: Request,
+                              _: None = Depends(_require_admin)) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+
+    rules = body.get("agent_rules")
+    if rules is None or not isinstance(rules, str):
+        return JSONResponse({"error": "agent_rules must be a string."}, status_code=400)
+    if len(rules) > 8000:
+        return JSONResponse({"error": "That's too long - keep it under 8000 characters."},
+                            status_code=400)
+
+    store.set_setting(prompts.SETTINGS_KEY_AGENT_RULES, rules.strip())
+    log.info("admin updated agent behaviour rules (%d chars)", len(rules))
+    return JSONResponse({"ok": True})
 
 
 @app.post("/admin/knowledge")

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Voice Agent Admin{% endblock %}</title>
+    <script>
+        try {
+            var __theme = localStorage.getItem("theme");
+            if (__theme === "light" || __theme === "dark") {
+                document.documentElement.setAttribute("data-theme", __theme);
+            }
+        } catch (_) {}
+    </script>
+    <link rel="icon" type="image/png" href="{{ asset('img/favicon.png') }}">
+    <link rel="apple-touch-icon" href="{{ asset('img/apple-touch-icon.png') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Admin uses a richer, more conventional SaaS palette than the ghost
+           monochrome call app - categorical colour on stat-card icon badges
+           is deliberate here (per the reference design), not something the
+           "colour only signals state" rule from the call UI applies to.
+           Light is the default look (matching the reference); dark inverts
+           surfaces/text and keeps the same badge hues, just tuned for
+           contrast on a dark background. */
+        :root {
+            --bg: #f6f7fb;
+            --panel: #ffffff;
+            --border: #e8eaf0;
+            --text-main: #14161f;
+            --text-muted: #6b7086;
+            --sidebar-bg: #ffffff;
+            --sidebar-active-bg: #eef1ff;
+            --hover-bg: #f2f3f8;
+            --primary: #4f5bd5;
+            --primary-hover: #3f4bc4;
+            --success: #16a34a;
+            --success-bg: rgba(22,163,74,.12);
+            --warn: #d97706;
+            --warn-bg: rgba(217,119,6,.12);
+            --danger: #dc2626;
+            --danger-bg: rgba(220,38,38,.12);
+            --badge-purple: #8b5cf6;   --badge-purple-bg: rgba(139,92,246,.13);
+            --badge-blue:   #3b82f6;  --badge-blue-bg: rgba(59,130,246,.13);
+            --badge-green:  #16a34a;  --badge-green-bg: rgba(22,163,74,.13);
+            --badge-orange: #ea8a09;  --badge-orange-bg: rgba(234,138,9,.14);
+            --badge-pink:   #ec4899;  --badge-pink-bg: rgba(236,72,153,.13);
+            --shadow: 0 1px 2px rgba(20,22,40,.04), 0 1px 12px rgba(20,22,40,.04);
+            color-scheme: light;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                --bg: #0b0c11;
+                --panel: #14161d;
+                --border: rgba(255,255,255,.08);
+                --text-main: #f3f4f6;
+                --text-muted: #9497a8;
+                --sidebar-bg: #101117;
+                --sidebar-active-bg: rgba(79,91,213,.18);
+                --hover-bg: rgba(255,255,255,.04);
+                --shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 12px rgba(0,0,0,.25);
+                color-scheme: dark;
+            }
+        }
+        :root[data-theme="dark"] {
+            --bg: #0b0c11;
+            --panel: #14161d;
+            --border: rgba(255,255,255,.08);
+            --text-main: #f3f4f6;
+            --text-muted: #9497a8;
+            --sidebar-bg: #101117;
+            --sidebar-active-bg: rgba(79,91,213,.18);
+            --hover-bg: rgba(255,255,255,.04);
+            --shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 12px rgba(0,0,0,.25);
+            color-scheme: dark;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; background: var(--bg); color: var(--text-main);
+            font: 14.5px/1.5 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        a { color: inherit; }
+
+        .shell { display: flex; min-height: 100vh; }
+
+        /* --- Sidebar --- */
+        .sidebar {
+            width: 250px; flex-shrink: 0;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border);
+            display: flex; flex-direction: column;
+            position: sticky; top: 0; height: 100vh;
+        }
+        .sidebar-brand {
+            display: flex; align-items: center; gap: 11px;
+            padding: 20px 18px; border-bottom: 1px solid var(--border);
+        }
+        .sidebar-brand img {
+            width: 38px; height: 38px; border-radius: 11px; object-fit: cover;
+            box-shadow: var(--shadow);
+        }
+        .sidebar-brand .name { font-weight: 600; font-size: 15px; }
+        .sidebar-brand .role { font-size: 12px; color: var(--text-muted); }
+
+        .nav { flex: 1; padding: 14px 12px; display: flex; flex-direction: column; gap: 2px; }
+        .nav a {
+            display: flex; align-items: center; gap: 11px;
+            padding: 9px 12px; border-radius: 9px;
+            font-size: 13.5px; font-weight: 500; color: var(--text-muted);
+            text-decoration: none; transition: background-color .12s ease, color .12s ease;
+        }
+        .nav a:hover { background: var(--hover-bg); color: var(--text-main); }
+        .nav a.active { background: var(--sidebar-active-bg); color: var(--primary); }
+        .nav svg { width: 17px; height: 17px; flex-shrink: 0; }
+
+        .sidebar-foot {
+            padding: 14px 18px; border-top: 1px solid var(--border);
+            display: flex; align-items: center; gap: 10px;
+        }
+        .sidebar-foot .avatar {
+            width: 30px; height: 30px; border-radius: 50%;
+            background: var(--primary); color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12.5px; font-weight: 600; flex-shrink: 0;
+        }
+        .sidebar-foot .who { min-width: 0; }
+        .sidebar-foot .who .n { font-size: 13px; font-weight: 500; }
+        .sidebar-foot .who .e {
+            font-size: 11.5px; color: var(--text-muted);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+
+        /* --- Main --- */
+        .main { flex: 1; min-width: 0; padding: 28px 32px 60px; }
+        .topbar {
+            display: flex; align-items: flex-start; justify-content: space-between;
+            gap: 16px; flex-wrap: wrap; margin-bottom: 26px;
+        }
+        .topbar h1 { font-size: 21px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; }
+        .topbar .sub { color: var(--text-muted); font-size: 13.5px; }
+        .topbar-right { display: flex; align-items: center; gap: 10px; }
+
+        .pill-status {
+            display: inline-flex; align-items: center; gap: 6px;
+            background: var(--panel); border: 1px solid var(--border);
+            padding: 7px 13px; border-radius: 99px; font-size: 12.5px;
+            color: var(--text-muted); box-shadow: var(--shadow);
+        }
+        .live-dot {
+            width: 7px; height: 7px; border-radius: 50%; background: var(--success);
+            box-shadow: 0 0 0 3px var(--success-bg);
+        }
+
+        .icon-btn {
+            width: 38px; height: 38px; border-radius: 10px;
+            border: 1px solid var(--border); background: var(--panel);
+            color: var(--text-main); display: flex; align-items: center; justify-content: center;
+            cursor: pointer; box-shadow: var(--shadow);
+            transition: background-color .12s ease;
+        }
+        .icon-btn:hover { background: var(--hover-bg); }
+        .icon-btn svg { width: 17px; height: 17px; }
+
+        h2.section {
+            font-size: 12.5px; text-transform: uppercase; letter-spacing: .8px;
+            color: var(--text-muted); font-weight: 600; margin: 30px 0 13px;
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        }
+        h2.section:first-child { margin-top: 0; }
+
+        .cards { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+        .card {
+            background: var(--panel); border: 1px solid var(--border);
+            border-radius: 14px; padding: 18px 20px; box-shadow: var(--shadow);
+        }
+        .card .icon-badge {
+            width: 34px; height: 34px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            margin-bottom: 12px;
+        }
+        .card .icon-badge svg { width: 17px; height: 17px; }
+        .card .n { font-size: 23px; font-weight: 700; letter-spacing: -0.01em; }
+        .card .l { color: var(--text-muted); font-size: 12.5px; margin-top: 3px; }
+        .card .delta { font-size: 12px; margin-top: 8px; font-weight: 600; }
+        .card .delta.up { color: var(--success); }
+        .card .delta.down { color: var(--danger); }
+
+        .panel {
+            background: var(--panel); border: 1px solid var(--border);
+            border-radius: 14px; padding: 20px 22px; box-shadow: var(--shadow);
+        }
+        .panel p { margin: 0 0 10px; }
+        .panel .hint { color: var(--text-muted); font-size: 13px; }
+
+        .scroll {
+            overflow-x: auto; border: 1px solid var(--border); border-radius: 14px;
+            background: var(--panel); box-shadow: var(--shadow);
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 860px; }
+        th, td { text-align: left; padding: 12px 15px; border-bottom: 1px solid var(--border); vertical-align: top; }
+        tr:last-child td { border-bottom: none; }
+        th { color: var(--text-muted); font-weight: 600; font-size: 11.5px;
+             text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+        td.wrap-cell { max-width: 280px; }
+        td.mono { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-muted); }
+        td.check-cell, th.check-cell { width: 32px; text-align: center; }
+        tr.lead-row.selected { background: var(--sidebar-active-bg); }
+
+        .pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px;
+                border-radius: 99px; font-size: 11px; font-weight: 600; }
+        .pill.yes { background: var(--success-bg); color: var(--success); }
+        .pill.no  { background: var(--hover-bg); color: var(--text-muted); }
+        .pill.warn { background: var(--warn-bg); color: var(--warn); }
+
+        button, .btn {
+            font-family: inherit; background: var(--primary); color: #fff;
+            border: 0; border-radius: 9px; padding: 9px 16px;
+            font-size: 13px; font-weight: 500; cursor: pointer;
+            transition: background-color .12s ease, transform .1s ease;
+        }
+        button:hover, .btn:hover { background: var(--primary-hover); }
+        button.ghost {
+            background: var(--panel); color: var(--text-main);
+            border: 1px solid var(--border); box-shadow: var(--shadow);
+        }
+        button.ghost:hover { background: var(--hover-bg); }
+        button.danger { background: var(--danger); }
+        button.danger:hover { background: #b91c1c; }
+        button:disabled { opacity: .45; cursor: not-allowed; }
+        button.small { padding: 6px 12px; font-size: 12px; }
+
+        input[type=text], input[type=email], input[type=file], textarea {
+            font-family: inherit; font-size: 13.5px; color: var(--text-main);
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: 9px; padding: 9px 11px; outline: none;
+            transition: border-color .12s ease;
+        }
+        input[type=text]:focus, input[type=email]:focus, textarea:focus { border-color: var(--primary); }
+
+        code { background: var(--hover-bg); padding: 2px 7px; border-radius: 6px; font-size: 12px; }
+        .empty { color: var(--text-muted); padding: 40px 20px; text-align: center; }
+        .status-msg { font-size: 13px; color: var(--success); }
+        .status-msg.err { color: var(--danger); }
+
+        ::-webkit-scrollbar { height: 6px; width: 6px; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+        @media (max-width: 860px) {
+            .sidebar { width: 74px; }
+            .sidebar-brand .name, .sidebar-brand .role,
+            .nav a span, .sidebar-foot .who { display: none; }
+            .nav a { justify-content: center; }
+            .main { padding: 20px 16px 48px; }
+        }
+    </style>
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+<div class="shell">
+    {% macro nav_href(path) -%}
+    {{- ('/admin/' + path if path else '/admin') }}{{ ('?token=' + token) if token else '' }}
+    {%- endmacro %}
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <img src="{{ asset('img/logo.png') }}" alt="">
+            <div>
+                <div class="name">Voice Agent</div>
+                <div class="role">Administrator</div>
+            </div>
+        </div>
+        <nav class="nav">
+            <a href="{{ nav_href('') }}" class="{{ 'active' if active_page == 'dashboard' else '' }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+                <span>Dashboard</span>
+            </a>
+            <a href="{{ nav_href('leads') }}" class="{{ 'active' if active_page == 'leads' else '' }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+                <span>Leads</span>
+            </a>
+            <a href="{{ nav_href('knowledge') }}" class="{{ 'active' if active_page == 'knowledge' else '' }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                <span>Knowledge Base</span>
+            </a>
+            <a href="{{ nav_href('integrations') }}" class="{{ 'active' if active_page == 'integrations' else '' }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>
+                <span>Integrations</span>
+            </a>
+            <a href="{{ nav_href('settings') }}" class="{{ 'active' if active_page == 'settings' else '' }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                <span>Settings</span>
+            </a>
+        </nav>
+        <div class="sidebar-foot">
+            <div class="avatar">{{ owner_initial or "A" }}</div>
+            <div class="who">
+                <div class="n">Admin</div>
+                <div class="e">{{ owner_email or "token access" }}</div>
+            </div>
+        </div>
+    </aside>
+
+    <main class="main">
+        <div class="topbar">
+            <div>
+                <h1>{% block page_title %}Dashboard{% endblock %}</h1>
+                <div class="sub">{% block page_sub %}{% endblock %}</div>
+            </div>
+            <div class="topbar-right">
+                {% block topbar_right %}{% endblock %}
+                <button type="button" id="btn-theme" class="icon-btn" aria-label="Toggle light and dark theme"></button>
+            </div>
+        </div>
+
+        {% block content %}{% endblock %}
+    </main>
+</div>
+
+<script>
+const SUN_ICON = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+    + '<circle cx="12" cy="12" r="4.5" fill="currentColor"/>'
+    + '<g stroke="currentColor" stroke-width="2" stroke-linecap="round">'
+    + '<path d="M12 2v2.5M12 19.5V22M4.22 4.22l1.77 1.77M18 18l1.78 1.78'
+    + 'M2 12h2.5M19.5 12H22M4.22 19.78L6 18M18 6l1.78-1.78"/></g></svg>';
+const MOON_ICON = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+    + '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" fill="currentColor"/></svg>';
+
+function systemPrefersDark() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+function effectiveTheme() {
+    const manual = document.documentElement.getAttribute("data-theme");
+    if (manual === "light" || manual === "dark") return manual;
+    return systemPrefersDark() ? "dark" : "light";
+}
+const btnTheme = document.getElementById("btn-theme");
+function paintThemeIcon() {
+    btnTheme.innerHTML = effectiveTheme() === "dark" ? SUN_ICON : MOON_ICON;
+}
+function setTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    try { localStorage.setItem("theme", theme); } catch (_) {}
+    paintThemeIcon();
+}
+paintThemeIcon();
+btnTheme.addEventListener("click", () => setTheme(effectiveTheme() === "dark" ? "light" : "dark"));
+if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+        if (!document.documentElement.getAttribute("data-theme")) paintThemeIcon();
+    });
+}
+</script>
+{% block script_extra %}{% endblock %}
+</body>
+</html>

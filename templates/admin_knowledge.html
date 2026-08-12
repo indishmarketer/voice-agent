@@ -1,0 +1,105 @@
+{% extends "admin_base.html" %}
+{% block title %}Knowledge Base — Voice Agent Admin{% endblock %}
+{% block page_title %}Knowledge Base{% endblock %}
+{% block page_sub %}Manage the agent's knowledge and how it retrieves information.{% endblock %}
+
+{% block topbar_right %}
+<span class="pill-status">Mode: {{ kb.mode }}</span>
+<span class="pill-status">{{ kb.chunks }} sections · {{ kb.characters }} characters total</span>
+{% endblock %}
+
+{% block content %}
+<div class="panel" style="margin-bottom:22px">
+    <p style="margin:0">
+        In <code>inline</code> mode the agent sees the whole knowledge base on
+        every turn. Once it grows past the inline limit it automatically
+        switches to <code>retrieval</code> and only pulls the sections that
+        match what the caller asked. Each upload below replaces that topic's
+        file outright - there is no merge.
+    </p>
+</div>
+
+<h2 class="section">Knowledge Files</h2>
+<div class="cards" style="grid-template-columns: repeat(auto-fit, minmax(230px, 1fr))">
+    {% set icons = {
+        "company": ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="1"/><path d="M9 8h1M14 8h1M9 12h1M14 12h1M9 16h1M14 16h1"/></svg>', "purple"),
+        "services": ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>', "green"),
+        "faq": ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 4.6 1.4c0 1.6-2.1 1.9-2.1 3.3"/><path d="M12 17h.01"/></svg>', "orange"),
+        "pricing": ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 9 12 9s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5"/></svg>', "pink"),
+    } %}
+    {% for key, label in [("company","Company"),("services","Services"),("faq","FAQ"),("pricing","Pricing")] %}
+    <div class="card">
+        <div class="icon-badge" style="background:var(--badge-{{ icons[key][1] }}-bg);color:var(--badge-{{ icons[key][1] }})">{{ icons[key][0] | safe }}</div>
+        <div style="font-weight:600;font-size:14.5px;margin-bottom:2px">{{ label }}</div>
+        <div class="l" style="margin-bottom:14px">
+            {% if kb_files[key].exists %}
+                {{ kb_files[key].characters }} characters · updated {{ kb_files[key].updated }}
+            {% else %}
+                <span style="color:var(--warn)">not uploaded yet</span>
+            {% endif %}
+        </div>
+        <form class="kb-target-form" data-target="{{ key }}" style="display:flex;gap:8px;flex-wrap:wrap">
+            <input type="file" name="file" accept=".md" required style="max-width:100%">
+            <button type="submit" class="small">Replace</button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+
+<h2 class="section">Add a file</h2>
+<div class="panel">
+    <p class="hint" style="margin-bottom:14px">Add an extra file beyond the four core topics above (optional).</p>
+    <form id="kb-form" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input type="file" name="file" accept=".md" required>
+        <button type="submit">Upload .md</button>
+        <button type="button" id="kb-reload" class="ghost">Reload from disk</button>
+    </form>
+    <div id="kb-out" class="status-msg" style="margin-top:10px"></div>
+</div>
+{% endblock %}
+
+{% block script_extra %}
+<script>
+const TOKEN = {{ token | tojson }};
+const withToken = (path) => path + "?token=" + encodeURIComponent(TOKEN);
+const kbOut = document.getElementById("kb-out");
+
+async function uploadKnowledge(form, target) {
+    const body = new FormData(form);
+    if (target) body.append("target", target);
+    const res = await fetch(withToken("/admin/knowledge"), { method: "POST", body });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, data };
+}
+
+document.getElementById("kb-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    kbOut.textContent = "Uploading…";
+    kbOut.className = "status-msg";
+    const { ok, data } = await uploadKnowledge(event.target, null);
+    kbOut.textContent = ok ? "Uploaded. Reloading…" : (data.error || "Failed.");
+    kbOut.className = "status-msg" + (ok ? "" : " err");
+    if (ok) setTimeout(() => location.reload(), 700);
+});
+
+document.querySelectorAll(".kb-target-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const target = form.dataset.target;
+        kbOut.textContent = "Uploading " + target + "…";
+        kbOut.className = "status-msg";
+        const { ok, data } = await uploadKnowledge(form, target);
+        kbOut.textContent = ok ? "Uploaded. Reloading…" : (data.error || "Failed.");
+        kbOut.className = "status-msg" + (ok ? "" : " err");
+        if (ok) setTimeout(() => location.reload(), 700);
+    });
+});
+
+document.getElementById("kb-reload").addEventListener("click", async () => {
+    kbOut.textContent = "Reloading…";
+    kbOut.className = "status-msg";
+    await fetch(withToken("/admin/knowledge/reload"), { method: "POST" });
+    location.reload();
+});
+</script>
+{% endblock %}
