@@ -14,10 +14,10 @@
             }
         } catch (_) {}
     </script>
-    <link rel="icon" type="image/png" href="{{ url_for('static', path='img/favicon.png') }}">
-    <link rel="apple-touch-icon" href="{{ url_for('static', path='img/apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" href="{{ asset('img/favicon.png') }}">
+    <link rel="apple-touch-icon" href="{{ asset('img/apple-touch-icon.png') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+    <link rel="stylesheet" href="{{ asset('style.css') }}">
     {% if turnstile_site_key %}
     <script>
         // Defined BEFORE the Turnstile script tag below, so there is no race:
@@ -43,7 +43,7 @@
         <div id="dial-screen" class="screen active">
             <div class="brand">
                 <div class="logo">
-                    <img src="{{ url_for('static', path='img/logo.png') }}" alt="{{ brand }}">
+                    <img src="{{ asset('img/logo.png') }}" alt="{{ brand }}">
                 </div>
                 <h1>{{ brand }}</h1>
                 <p>Intelligent Voice Assistant</p>
@@ -68,7 +68,7 @@
                 <div class="agent-orb" id="agent-orb" aria-hidden="true">
                     <div class="ring"></div>
                     <div class="core">
-                        <img src="{{ url_for('static', path='img/logo.png') }}" alt="">
+                        <img src="{{ asset('img/logo.png') }}" alt="">
                     </div>
                 </div>
                 <h2>{{ agent_name }}</h2>
@@ -139,6 +139,6 @@
     <script>
         window.__TURNSTILE_SITE_KEY__ = {{ (turnstile_site_key or "") | tojson }};
     </script>
-    <script src="{{ url_for('static', path='app.js') }}"></script>
+    <script src="{{ asset('app.js') }}"></script>
 </body>
 </html>

@@ -356,6 +356,19 @@ body {
     justify-content: center;
     gap: 7px;
     height: 56px;
+    /* This is the actual root cause of the whole page appearing to jitter
+       during a call: a flex item's automatic minimum size defaults to its
+       CONTENT's size, which silently wins over an explicit height unless
+       overridden. Without these two lines, every bar that grows taller than
+       56px was expanding this box itself, which pushed the transcript box,
+       contact card and call controls down and back up in lockstep with the
+       waveform - not a rendering illusion, a real, measured layout shift of
+       up to ~46px each way. min-height:0 turns that automatic minimum off;
+       overflow:hidden is a second guarantee that no future bar height can
+       ever reopen this. */
+    min-height: 0;
+    overflow: hidden;
+    flex-shrink: 0;
     margin: 32px 0;
     opacity: 0.35;
     transition: opacity 0.3s;

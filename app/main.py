@@ -38,6 +38,30 @@ app = FastAPI(title="Indish Marketer Voice Agent", docs_url=None, redoc_url=None
 app.mount("/static", StaticFiles(directory=config.BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(config.BASE_DIR / "templates"))
 
+
+def _asset(path: str) -> str:
+    """URL for a static file with a cache-busting version query string.
+
+    Without this, browsers were free to cache style.css/app.js indefinitely -
+    the server sent Last-Modified/ETag but no explicit Cache-Control, which
+    leaves the caching duration up to each browser's own heuristics. A CSS
+    fix could deploy cleanly and still never reach a returning visitor,
+    because their browser never asked for a new copy. The version here is
+    the file's on-disk mtime, which changes on every deploy (the Docker
+    build re-copies the source tree), so the URL itself changes whenever the
+    file's content actually does - forcing a fresh fetch without needing any
+    build step or manual cache-clearing on either end.
+    """
+    full = config.BASE_DIR / "static" / path
+    try:
+        version = int(full.stat().st_mtime)
+    except OSError:
+        version = 0
+    return f"/static/{path}?v={version}"
+
+
+templates.env.globals["asset"] = _asset
+
 VISITOR_COOKIE = "im_visitor"
 COOKIE_MAX_AGE = 365 * 24 * 3600
 
