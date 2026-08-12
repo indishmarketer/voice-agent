@@ -662,10 +662,41 @@ async def _speak(call: Call, clauses: AsyncIterator[str],
 
 # --- Admin ------------------------------------------------------------------
 
+# Fixed filenames for the core knowledge base, so the admin page can offer a
+# dedicated upload slot per topic that always replaces the right file
+# regardless of what the uploaded file happens to be named locally.
+KNOWLEDGE_TARGETS = {
+    "company": "00-company.md",
+    "services": "01-services.md",
+    "faq": "02-faq.md",
+    "pricing": "03-pricing.md",
+}
+
+
 def _require_admin(request: Request) -> None:
     token = request.query_params.get("token") or request.headers.get("x-admin-token", "")
     if not security.is_admin(token):
         raise HTTPException(status_code=404, detail="Not found")
+
+
+def _knowledge_file_status() -> dict[str, dict[str, Any]]:
+    status = {}
+    for key, filename in KNOWLEDGE_TARGETS.items():
+        path = config.KNOWLEDGE_DIR / filename
+        if path.exists():
+            stat = path.stat()
+            status[key] = {
+                "filename": filename,
+                "exists": True,
+                "characters": stat.st_size,
+                "updated": datetime.datetime.fromtimestamp(
+                    stat.st_mtime, tz=datetime.timezone.utc
+                ).strftime("%b %d, %H:%M"),
+            }
+        else:
+            status[key] = {"filename": filename, "exists": False,
+                          "characters": 0, "updated": None}
+    return status
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -688,6 +719,8 @@ async def admin(request: Request, _: None = Depends(_require_admin)) -> Response
             "usage": store.usage_summary(),
             "active": security.active_count(),
             "kb": KB.stats(),
+            "kb_files": _knowledge_file_status(),
+            "sheets_url": config.SHEETS_URL,
             "leads": leads_out,
             "limits": {
                 "Sessions per IP per day": config.SESSIONS_PER_IP_PER_DAY,
@@ -704,10 +737,18 @@ async def admin(request: Request, _: None = Depends(_require_admin)) -> Response
 
 @app.post("/admin/knowledge")
 async def upload_knowledge(request: Request, file: UploadFile = File(...),
+                           target: Optional[str] = Form(None),
                            _: None = Depends(_require_admin)) -> Response:
-    name = (file.filename or "").strip().replace("/", "_").replace("\\", "_")
-    if not name.endswith(".md"):
-        return JSONResponse({"error": "Only .md files are accepted."}, status_code=400)
+    if target:
+        canonical = KNOWLEDGE_TARGETS.get(target)
+        if not canonical:
+            return JSONResponse({"error": "Unknown target."}, status_code=400)
+        name = canonical
+    else:
+        name = (file.filename or "").strip().replace("/", "_").replace("\\", "_")
+        if not name.endswith(".md"):
+            return JSONResponse({"error": "Only .md files are accepted."}, status_code=400)
+
     content = (await file.read()).decode("utf-8", errors="replace")
     config.KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
     (config.KNOWLEDGE_DIR / name).write_text(content, encoding="utf-8")
@@ -720,3 +761,28 @@ async def reload_knowledge(request: Request,
                            _: None = Depends(_require_admin)) -> Response:
     KB.load()
     return JSONResponse({"ok": True, "kb": KB.stats()})
+
+
+@app.post("/admin/leads/delete")
+async def delete_leads(request: Request,
+                       _: None = Depends(_require_admin)) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+
+    if body.get("all"):
+        removed = store.delete_all_leads()
+        log.info("admin deleted all leads (%d rows)", removed)
+        return JSONResponse({"ok": True, "removed": removed})
+
+    ids = body.get("ids") or []
+    try:
+        ids = [int(i) for i in ids]
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "ids must be a list of integers."}, status_code=400)
+    if not ids:
+        return JSONResponse({"error": "No lead ids given."}, status_code=400)
+
+    removed = store.delete_leads(ids)
+    log.info("admin deleted %d lead(s)", removed)
+    return JSONResponse({"ok": True, "removed": removed})

@@ -4,28 +4,33 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ usage.day }} — Voice Agent Admin</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='favicon.svg') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        /* Ghost theme: chrome is grayscale only. Colour is reserved for
+           status - success/warn/danger pills and the one CTA accent - never
+           for decoration. Matches the call app's design language. */
         :root {
             color-scheme: dark;
-            --bg-dark: #08090d;
-            --bg-panel: #14161d;
+            --bg-dark: #060606;
+            --bg-panel: #121212;
             --glass: rgba(255, 255, 255, 0.045);
-            --glass-border: rgba(255, 255, 255, 0.09);
-            --accent: #6d6af2;
-            --accent-2: #d6549e;
+            --glass-border: rgba(255, 255, 255, 0.10);
+            --mono-1: #ffffff;
+            --mono-3: #3a3a3a;
             --success: #22c55e;
             --warn: #f59e0b;
             --danger: #ef4444;
+            --cta: #5b8def;
             --text-main: #f3f4f6;
-            --text-muted: #92959f;
+            --text-muted: #8a8a8f;
         }
         * { box-sizing: border-box; }
         body {
             margin: 0; padding: 40px 24px 80px;
             background:
-                radial-gradient(900px 500px at 12% -10%, rgba(109,106,242,.16), transparent 60%),
-                radial-gradient(700px 420px at 100% 0%, rgba(214,84,158,.12), transparent 55%),
+                radial-gradient(900px 500px at 12% -10%, rgba(255,255,255,.06), transparent 60%),
+                radial-gradient(700px 420px at 100% 0%, rgba(255,255,255,.04), transparent 55%),
                 var(--bg-dark);
             color: var(--text-main);
             font: 15px/1.55 'Inter', system-ui, -apple-system, sans-serif;
@@ -34,6 +39,12 @@
 
         .topbar { display: flex; align-items: baseline; justify-content: space-between;
                   flex-wrap: wrap; gap: 10px; margin-bottom: 6px; }
+        .brandmark { display: flex; align-items: center; gap: 12px; }
+        .brandmark .mark {
+            width: 34px; height: 34px; border-radius: 10px;
+            background: linear-gradient(135deg, var(--mono-1), var(--mono-3));
+            box-shadow: 0 4px 14px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.15);
+        }
         h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
         .sub { color: var(--text-muted); font-size: 13px; }
         .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
@@ -41,7 +52,8 @@
                     box-shadow: 0 0 0 3px rgba(34,197,94,.18); }
 
         h2 { font-size: 12.5px; text-transform: uppercase; letter-spacing: 1.2px;
-             color: var(--text-muted); font-weight: 600; margin: 40px 0 14px; }
+             color: var(--text-muted); font-weight: 600; margin: 40px 0 14px;
+             display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
         .cards { display: grid; gap: 12px;
                  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
@@ -66,16 +78,28 @@
         .panel p { margin: 0 0 10px; }
         .panel .hint { color: var(--text-muted); font-size: 13px; }
 
+        .kb-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+        .kb-slot {
+            background: var(--glass); border: 1px solid var(--glass-border);
+            border-radius: 12px; padding: 14px 16px;
+        }
+        .kb-slot .kb-title { font-weight: 600; font-size: 13.5px; margin-bottom: 2px; }
+        .kb-slot .kb-meta { color: var(--text-muted); font-size: 12px; margin-bottom: 10px; }
+        .kb-slot form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .kb-slot input[type=file] { max-width: 100%; }
+
         .scroll { overflow-x: auto; border: 1px solid var(--glass-border);
                   border-radius: 14px; background: var(--glass); backdrop-filter: blur(10px); }
-        table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 820px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 860px; }
         th, td { text-align: left; padding: 11px 14px;
                  border-bottom: 1px solid var(--glass-border); vertical-align: top; }
         tr:last-child td { border-bottom: none; }
         th { color: var(--text-muted); font-weight: 500; font-size: 11.5px;
              text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
-        td.wrap-cell { max-width: 300px; }
+        td.wrap-cell { max-width: 280px; }
         td.mono { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-muted); }
+        td.check-cell, th.check-cell { width: 32px; text-align: center; }
+        tr.lead-row.selected { background: rgba(91, 141, 239, 0.08); }
 
         .pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px;
                 border-radius: 99px; font-size: 11px; font-weight: 600; }
@@ -84,29 +108,38 @@
         .warn { background: rgba(245,158,11,.15); color: var(--warn); }
 
         form.upload { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
-        input[type=file] { color: var(--text-muted); font-size: 13px; }
+        input[type=file] { color: var(--text-muted); font-size: 12.5px; }
 
         button, .btn {
             font-family: inherit;
-            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            background: var(--cta);
             color: #fff; border: 0; border-radius: 9px;
             padding: 9px 16px; font-size: 13px; font-weight: 500; cursor: pointer;
-            transition: transform .1s ease;
+            transition: transform .1s ease, background-color .15s ease;
         }
-        button:hover, .btn:hover { transform: translateY(-1px); }
+        button:hover, .btn:hover { background: #4a7de0; transform: translateY(-1px); }
         button.ghost {
             background: rgba(255,255,255,.08); border: 1px solid var(--glass-border);
         }
+        button.ghost:hover { background: rgba(255,255,255,.14); }
+        button.danger { background: var(--danger); }
+        button.danger:hover { background: #dc2626; }
+        button:disabled {
+            opacity: .4; cursor: not-allowed; transform: none; background: rgba(255,255,255,.08);
+        }
+        button.small { padding: 6px 12px; font-size: 12px; }
 
         code { background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 6px; font-size: 12px; }
         .empty { color: var(--text-muted); padding: 20px 14px; }
-        #kb-out { color: var(--success); font-size: 13px; }
+        .status-msg { font-size: 13px; color: var(--success); }
+        .status-msg.err { color: var(--danger); }
 
         .owner-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .owner-row input { flex: 1; min-width: 220px; font-family: inherit; font-size: 12.5px;
              background: rgba(255,255,255,.06); border: 1px solid var(--glass-border);
              color: var(--text-muted); border-radius: 8px; padding: 8px 10px; }
-        #copy-out { font-size: 12.5px; color: var(--success); min-width: 60px; }
+
+        .leads-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
         ::-webkit-scrollbar { height: 6px; width: 6px; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 4px; }
@@ -115,7 +148,10 @@
 <body>
 <div class="wrap">
     <div class="topbar">
-        <h1>Voice Agent</h1>
+        <div class="brandmark">
+            <div class="mark"></div>
+            <h1>Voice Agent</h1>
+        </div>
         <div class="sub"><span class="live-dot"></span>{{ active }} call(s) in progress · {{ usage.day }} UTC</div>
     </div>
 
@@ -154,7 +190,7 @@
         <div class="owner-row">
             <input id="owner-link" type="text" readonly value="{{ owner_link }}">
             <button type="button" id="copy-link">Copy link</button>
-            <span id="copy-out"></span>
+            <span id="copy-out" class="status-msg"></span>
         </div>
     </div>
 
@@ -162,32 +198,65 @@
     <div class="panel">
         <p>
             Mode: <code>{{ kb.mode }}</code> ·
-            {{ kb.chunks }} sections · {{ kb.characters }} characters ·
-            files: {{ kb.files | join(', ') if kb.files else 'none yet' }}
+            {{ kb.chunks }} sections · {{ kb.characters }} characters total
         </p>
         <p class="hint">
             In <code>inline</code> mode the agent sees the whole knowledge base on
             every turn. Once it grows past the inline limit it automatically
             switches to <code>retrieval</code> and only pulls the sections that
-            match what the caller asked.
+            match what the caller asked. Each upload below replaces that topic's
+            file outright - there is no merge.
         </p>
+
+        <div class="kb-grid" style="margin-top:14px">
+            {% for key, label in [("company","Company"),("services","Services"),("faq","FAQ"),("pricing","Pricing")] %}
+            <div class="kb-slot">
+                <div class="kb-title">{{ label }}</div>
+                <div class="kb-meta">
+                    {% if kb_files[key].exists %}
+                        {{ kb_files[key].characters }} chars · updated {{ kb_files[key].updated }}
+                    {% else %}
+                        <span style="color:var(--warn)">not uploaded yet</span>
+                    {% endif %}
+                </div>
+                <form class="kb-target-form" data-target="{{ key }}">
+                    <input type="file" name="file" accept=".md" required>
+                    <button type="submit" class="small">Replace</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+
+        <p class="hint" style="margin-top:16px">Add an extra file beyond the four above:</p>
         <form id="kb-form" class="upload">
             <input type="file" name="file" accept=".md" required>
             <button type="submit">Upload .md</button>
             <button type="button" id="kb-reload" class="ghost">Reload from disk</button>
-            <span id="kb-out"></span>
         </form>
+        <div id="kb-out" class="status-msg" style="margin-top:8px"></div>
     </div>
 
-    <h2>Leads ({{ leads | length }})</h2>
+    <h2>
+        <span>Leads ({{ leads | length }})</span>
+        <span class="leads-actions">
+            {% if sheets_url %}
+            <a class="btn ghost" href="{{ sheets_url }}" target="_blank" rel="noopener"
+               style="text-decoration:none">Open spreadsheet</a>
+            {% endif %}
+            <button type="button" id="delete-selected" class="ghost small" disabled>Delete selected</button>
+            <button type="button" id="delete-all" class="danger small">Delete all</button>
+        </span>
+    </h2>
     <div class="scroll">
     <table>
         <tr>
+            <th class="check-cell"><input type="checkbox" id="select-all"></th>
             <th>When (UTC)</th><th>Name</th><th>Email</th><th>Phone</th>
             <th>Company</th><th>Problem</th><th>Interest</th><th>Sheet</th>
         </tr>
         {% for lead in leads %}
-        <tr>
+        <tr class="lead-row" data-id="{{ lead.id }}">
+            <td class="check-cell"><input type="checkbox" class="lead-check" value="{{ lead.id }}"></td>
             <td class="mono">{{ lead.when }}</td>
             <td>{{ lead.name or '—' }}</td>
             <td>{{ lead.email or '—' }}</td>
@@ -201,7 +270,7 @@
             </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="empty">No leads captured yet.</td></tr>
+        <tr><td colspan="9" class="empty">No leads captured yet.</td></tr>
         {% endfor %}
     </table>
     </div>
@@ -209,23 +278,44 @@
 
 <script>
 const TOKEN = {{ token | tojson }};
+const withToken = (path) => path + "?token=" + encodeURIComponent(TOKEN);
 const kbOut = document.getElementById("kb-out");
+
+async function uploadKnowledge(form, target) {
+    const body = new FormData(form);
+    if (target) body.append("target", target);
+    const res = await fetch(withToken("/admin/knowledge"), { method: "POST", body });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, data };
+}
 
 document.getElementById("kb-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     kbOut.textContent = "Uploading…";
-    const body = new FormData(event.target);
-    const res = await fetch("/admin/knowledge?token=" + encodeURIComponent(TOKEN),
-        { method: "POST", body });
-    const data = await res.json().catch(() => ({}));
-    kbOut.textContent = res.ok ? "Uploaded. Reloading…" : (data.error || "Failed.");
-    if (res.ok) setTimeout(() => location.reload(), 700);
+    kbOut.className = "status-msg";
+    const { ok, data } = await uploadKnowledge(event.target, null);
+    kbOut.textContent = ok ? "Uploaded. Reloading…" : (data.error || "Failed.");
+    kbOut.className = "status-msg" + (ok ? "" : " err");
+    if (ok) setTimeout(() => location.reload(), 700);
+});
+
+document.querySelectorAll(".kb-target-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const target = form.dataset.target;
+        kbOut.textContent = "Uploading " + target + "…";
+        kbOut.className = "status-msg";
+        const { ok, data } = await uploadKnowledge(form, target);
+        kbOut.textContent = ok ? "Uploaded. Reloading…" : (data.error || "Failed.");
+        kbOut.className = "status-msg" + (ok ? "" : " err");
+        if (ok) setTimeout(() => location.reload(), 700);
+    });
 });
 
 document.getElementById("kb-reload").addEventListener("click", async () => {
     kbOut.textContent = "Reloading…";
-    await fetch("/admin/knowledge/reload?token=" + encodeURIComponent(TOKEN),
-        { method: "POST" });
+    kbOut.className = "status-msg";
+    await fetch(withToken("/admin/knowledge/reload"), { method: "POST" });
     location.reload();
 });
 
@@ -240,6 +330,60 @@ document.getElementById("copy-link").addEventListener("click", async () => {
         out.textContent = "Select & copy";
     }
     setTimeout(() => { out.textContent = ""; }, 2000);
+});
+
+// --- Lead selection and deletion -------------------------------------------
+
+const selectAll = document.getElementById("select-all");
+const checks = () => [...document.querySelectorAll(".lead-check")];
+const deleteSelectedBtn = document.getElementById("delete-selected");
+
+function refreshSelection() {
+    const boxes = checks();
+    const anyChecked = boxes.some((b) => b.checked);
+    deleteSelectedBtn.disabled = !anyChecked;
+    boxes.forEach((b) => {
+        b.closest("tr").classList.toggle("selected", b.checked);
+    });
+    if (boxes.length) {
+        selectAll.checked = boxes.every((b) => b.checked);
+        selectAll.indeterminate = anyChecked && !selectAll.checked;
+    }
+}
+
+selectAll.addEventListener("change", () => {
+    checks().forEach((b) => { b.checked = selectAll.checked; });
+    refreshSelection();
+});
+
+document.addEventListener("change", (event) => {
+    if (event.target.classList.contains("lead-check")) refreshSelection();
+});
+
+async function deleteLeads(body) {
+    const res = await fetch(withToken("/admin/leads/delete"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+    return res.ok;
+}
+
+deleteSelectedBtn.addEventListener("click", async () => {
+    const ids = checks().filter((b) => b.checked).map((b) => Number(b.value));
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} lead(s)? This cannot be undone.`)) return;
+    if (await deleteLeads({ ids })) location.reload();
+    else alert("Could not delete - please try again.");
+});
+
+document.getElementById("delete-all").addEventListener("click", async () => {
+    const total = {{ leads | length }};
+    if (!total) return;
+    if (!confirm(`Delete ALL ${total} lead(s) from the database? This cannot be undone. `
+               + "Anything already synced to the spreadsheet is unaffected there.")) return;
+    if (await deleteLeads({ all: true })) location.reload();
+    else alert("Could not delete - please try again.");
 });
 </script>
 </body>

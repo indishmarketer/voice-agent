@@ -1,16 +1,30 @@
+/* Ghost theme: chrome (background, text, branding) is strictly grayscale -
+   black, white, and gradients between them, nothing else. Colour is reserved
+   for things that mean something: the dial button, the end-call button, and
+   the live audio visuals (orb glow, waveform) that show call state. Anything
+   colourful on this page should be answering "what is happening right now",
+   never just decoration. */
 :root {
-    --bg-dark: #08090d;
-    --bg-panel: #14161d;
+    --bg-dark: #060606;
+    --bg-panel: #121212;
     --glass: rgba(255, 255, 255, 0.045);
-    --glass-border: rgba(255, 255, 255, 0.09);
-    --accent: #6d6af2;
-    --accent-2: #d6549e;
-    --accent-hover: #8482f5;
-    --danger: #ef4444;
+    --glass-border: rgba(255, 255, 255, 0.10);
+
+    /* Branding: monochrome only, per the ghost theme. */
+    --mono-1: #ffffff;
+    --mono-2: #9a9a9a;
+    --mono-3: #3a3a3a;
+
+    /* Functional colour - status and action, not decoration. */
+    --success: #22c55e;   /* dial button, listening state */
+    --danger: #ef4444;    /* end call, muted state */
     --danger-hover: #dc2626;
+    --voice: #5b8def;     /* agent-speaking orb glow + waveform */
+    --cta: #5b8def;       /* primary buttons (Confirm) - same accent as voice,
+                             one functional colour rather than two */
+
     --text-main: #f3f4f6;
-    --text-muted: #92959f;
-    --success: #22c55e;
+    --text-muted: #8a8a8f;
 }
 
 * {
@@ -51,7 +65,7 @@ body {
     position: absolute;
     border-radius: 50%;
     filter: blur(70px);
-    opacity: 0.35;
+    opacity: 0.55;
     will-change: transform;
 }
 
@@ -60,7 +74,7 @@ body {
     height: 480px;
     left: -160px;
     top: -120px;
-    background: radial-gradient(circle, var(--accent), transparent 70%);
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.5), transparent 70%);
     animation: driftA 26s ease-in-out infinite;
 }
 
@@ -69,7 +83,7 @@ body {
     height: 420px;
     right: -140px;
     bottom: -100px;
-    background: radial-gradient(circle, var(--accent-2), transparent 70%);
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.32), transparent 70%);
     animation: driftB 32s ease-in-out infinite;
 }
 
@@ -78,8 +92,7 @@ body {
     height: 320px;
     left: 45%;
     top: 55%;
-    background: radial-gradient(circle, #3fd6c8, transparent 70%);
-    opacity: 0.2;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.22), transparent 70%);
     animation: driftC 38s ease-in-out infinite;
 }
 
@@ -157,8 +170,8 @@ body {
     align-items: center;
     justify-content: center;
     font-size: 26px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    box-shadow: 0 8px 30px rgba(109, 106, 242, 0.4);
+    background: linear-gradient(135deg, var(--mono-1), var(--mono-3));
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 .brand h1 {
@@ -166,7 +179,7 @@ body {
     font-size: 25px;
     letter-spacing: -0.02em;
     margin-bottom: 8px;
-    background: linear-gradient(135deg, #ffffff, #b8bad0);
+    background: linear-gradient(135deg, #ffffff, #a8a8a8);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -230,11 +243,15 @@ body {
     justify-content: center;
 }
 
+/* The ring is the functional part - its colour and glow report real audio
+   level, so it is deliberately the one coloured element on an otherwise
+   monochrome mark. The core underneath stays grayscale, matching the brand
+   logo on the dial screen. */
 .agent-orb .ring {
     position: absolute;
     inset: 0;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(109, 106, 242, 0.35), transparent 72%);
+    background: radial-gradient(circle, rgba(91, 141, 239, 0.45), transparent 72%);
     transform: scale(var(--level, 0));
     opacity: var(--level, 0);
     transition: transform 0.05s linear, opacity 0.05s linear;
@@ -244,12 +261,12 @@ body {
     width: 78px;
     height: 78px;
     border-radius: 50%;
-    background: linear-gradient(150deg, var(--accent), var(--accent-2));
+    background: linear-gradient(150deg, var(--mono-1), var(--mono-3));
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 26px;
-    box-shadow: 0 8px 26px rgba(109, 106, 242, 0.4);
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
     transform: scale(calc(1 + var(--level, 0) * 0.14));
     transition: transform 0.05s linear;
 }
@@ -288,7 +305,7 @@ body {
 .wave {
     width: 5px;
     height: 8px;
-    background-color: var(--accent);
+    background-color: var(--voice);
     border-radius: 3px;
     transition: height 0.06s ease-out, background-color 0.2s ease;
 }
@@ -328,11 +345,11 @@ body {
 
 .transcript-text.system,
 .transcript-text.agent {
-    color: #a5a3ff;
+    color: var(--mono-1);
 }
 
 .transcript-text.user {
-    color: var(--success);
+    color: var(--mono-2);
 }
 
 .transcript-text.interim {
@@ -402,7 +419,7 @@ body {
 }
 
 .contact-field input:focus {
-    border-color: var(--accent);
+    border-color: var(--cta);
     background: rgba(255, 255, 255, 0.09);
 }
 
@@ -436,10 +453,10 @@ body {
 .btn-text:hover { color: var(--text-main); }
 
 .btn-primary {
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    background: var(--cta);
     color: #fff;
 }
-.btn-primary:hover { transform: translateY(-1px); }
+.btn-primary:hover { background: #4a7de0; transform: translateY(-1px); }
 .btn-primary:disabled {
     opacity: 0.5;
     cursor: not-allowed;
@@ -513,8 +530,8 @@ body {
     bottom: 16px;
     padding: 12px 16px;
     border-radius: 14px;
-    background: rgba(109, 106, 242, 0.15);
-    border: 1px solid rgba(109, 106, 242, 0.35);
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
     backdrop-filter: blur(10px);
     color: var(--text-main);
     font-size: 13px;

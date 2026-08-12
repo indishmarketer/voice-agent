@@ -241,6 +241,25 @@ def mark_lead_synced(lead_id: int) -> None:
     _exec("UPDATE leads SET synced = 1 WHERE id = ?", (lead_id,))
 
 
+def delete_leads(ids: list[int]) -> int:
+    """Delete specific leads by id. Returns how many rows were actually removed,
+    so the caller can tell a partial delete (some ids no longer existed) from
+    a full one."""
+    if not ids:
+        return 0
+    placeholders = ",".join("?" * len(ids))
+    before = _query("SELECT COUNT(*) c FROM leads")[0]["c"]
+    _exec(f"DELETE FROM leads WHERE id IN ({placeholders})", tuple(ids))
+    after = _query("SELECT COUNT(*) c FROM leads")[0]["c"]
+    return before - after
+
+
+def delete_all_leads() -> int:
+    before = _query("SELECT COUNT(*) c FROM leads")[0]["c"]
+    _exec("DELETE FROM leads")
+    return before
+
+
 def list_leads(limit: int = 100) -> list[dict[str, Any]]:
     rows = _query(
         "SELECT id, session_id, name, email, phone, company, problem, interest, "

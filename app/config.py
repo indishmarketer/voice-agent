@@ -105,6 +105,14 @@ HISTORY_TURNS = _int("HISTORY_TURNS", 12)
 
 SHEETS_WEBHOOK_URL = _env("SHEETS_WEBHOOK_URL")
 SHEETS_WEBHOOK_SECRET = _env("SHEETS_WEBHOOK_SECRET")
+# The human-viewable spreadsheet, for the "open spreadsheet" button in admin.
+# Distinct from SHEETS_WEBHOOK_URL, which is the Apps Script endpoint that
+# receives lead data and isn't meant to be opened in a browser.
+SHEETS_URL = _env(
+    "SHEETS_URL",
+    "https://docs.google.com/spreadsheets/d/"
+    "1Pk0faDONiMpL5EgbUudXPjZ770IkW3g1WoUrcKM6N78/edit?gid=0#gid=0",
+)
 
 
 def missing_required() -> list[str]:
