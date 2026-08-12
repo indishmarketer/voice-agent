@@ -139,6 +139,15 @@ async def speak(clauses: AsyncIterator[str], sink: AudioSink,
     """Drive a full turn: feed clauses in, push PCM out, honour barge-in.
 
     Returns the text that was actually spoken.
+
+    Every failure path below used to just log.error() and return quietly,
+    which meant the caller heard dead air with no indication anything had
+    gone wrong - the LLM stream dying before its first token, the Fish
+    socket never opening, or Fish returning zero audio for text it did
+    generate all looked identical to the browser: nothing happened. A
+    cancelled turn (real barge-in) is not an error and must stay silent;
+    everything else that ends with nothing to play IS one, so it is raised
+    here and left for the caller to turn into a client-facing message.
     """
     stream = FishStream(voice_id)
     spoken: list[str] = []
@@ -168,34 +177,37 @@ async def speak(clauses: AsyncIterator[str], sink: AudioSink,
             await stream.finish()
 
     text_task = asyncio.create_task(pump_text())
+    produced = 0
 
     try:
         await open_task
     except Exception as exc:
         log.error("could not open Fish Audio stream: %s", exc)
         await asyncio.gather(text_task, return_exceptions=True)
-        return " ".join(spoken).strip()
+    else:
+        try:
+            async for frame in stream.audio():
+                if cancel.is_set():
+                    break
+                produced += len(frame)
+                await sink(frame)
+        except websockets.ConnectionClosed:
+            pass
+        except Exception as exc:
+            log.error("fish audio stream failed: %s", exc)
+        finally:
+            if not text_task.done():
+                text_task.cancel()
+            await asyncio.gather(text_task, return_exceptions=True)
+            await stream.close()
 
-    produced = 0
-    try:
-        async for frame in stream.audio():
-            if cancel.is_set():
-                break
-            produced += len(frame)
-            await sink(frame)
-    except websockets.ConnectionClosed:
-        pass
-    except Exception as exc:
-        log.error("fish audio stream failed: %s", exc)
-    finally:
-        if not text_task.done():
-            text_task.cancel()
-        await asyncio.gather(text_task, return_exceptions=True)
-        await stream.close()
+    result = " ".join(spoken).strip()
 
-    if spoken and not produced:
-        # Text was generated but no audio came back. Worth shouting about:
-        # the caller heard silence.
-        log.error("fish returned no audio for %r", spoken[:80])
+    if cancel.is_set():
+        return result  # a real barge-in, not a failure - stay quiet
+    if not result:
+        raise RuntimeError("no reply was generated for this turn")
+    if not produced:
+        raise RuntimeError(f"fish returned no audio for {result[:80]!r}")
 
-    return " ".join(spoken).strip()
+    return result

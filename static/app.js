@@ -411,12 +411,18 @@
 
     sendAudio(pcm);
 
-    // Keep sending through the pause so AssemblyAI's endpointer fires, then
-    // close the gate again.
+    // Our own VAD just decided the caller has stopped talking. Don't wait and
+    // hope AssemblyAI's own confidence-based detector independently agrees -
+    // tell it directly. Without this, a turn AssemblyAI is not confident
+    // about (longer or more complex sentences, background noise) can go
+    // unfinalized indefinitely: no end_of_turn ever arrives, so user_turn is
+    // never sent, and the call sits there until the 45s idle timeout hangs up
+    // with a confusing "I did not hear anything" - even though it clearly did.
     if (state.silence >= HANGOVER_BLOCKS) {
       state.streaming = false;
       state.voiced = 0;
       state.preroll = [];
+      send(state.sttSocket, { type: "ForceEndpoint" });
     }
   }
 
@@ -557,7 +563,16 @@
         setTimeout(() => endCall(data.message), 1200);
         break;
       case "error":
+        // Transient (a bad TTS turn, an LLM hiccup) - the call itself keeps
+        // going, so the banner should not sit there forever once the next
+        // turn succeeds. Session-start failures use notify() directly and
+        // are not affected, since the call never begins in that case.
         notify(data.message || "Something went wrong.", true);
+        setTimeout(() => {
+          if (noticeEl.textContent === (data.message || "Something went wrong.")) {
+            notify("");
+          }
+        }, 6000);
         break;
     }
   }
@@ -680,19 +695,7 @@
     }
   }
 
-  async function getTurnstileToken() {
-    if (!window.__TURNSTILE_SITE_KEY__) return "";
-
-    // Slow connection: the CDN script may not have finished by the time
-    // someone clicks Dial. Give it a couple of seconds rather than silently
-    // sending an unverified request (which the server would then reject).
-    for (let waited = 0; turnstileWidgetId === null && waited < 3000; waited += 100) {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    if (turnstileWidgetId === null || !window.turnstile) {
-      console.warn("[Turnstile] widget never became ready.");
-      return "";
-    }
+  function executeTurnstileOnce(timeoutMs) {
     return new Promise((resolve) => {
       turnstilePending = resolve;
       try {
@@ -710,8 +713,33 @@
           turnstilePending = null;
           resolve("");
         }
-      }, 8000);
+      }, timeoutMs);
     });
+  }
+
+  async function getTurnstileToken() {
+    if (!window.__TURNSTILE_SITE_KEY__) return "";
+
+    // Slow connection: the CDN script may not have finished by the time
+    // someone clicks Dial. Give it a couple of seconds rather than silently
+    // sending an unverified request (which the server would then reject).
+    for (let waited = 0; turnstileWidgetId === null && waited < 3000; waited += 100) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (turnstileWidgetId === null || !window.turnstile) {
+      console.warn("[Turnstile] widget never became ready.");
+      return "";
+    }
+
+    // A single slow or dropped challenge round trip used to mean an
+    // immediate, confusing "we could not verify you" - worth one silent
+    // retry before actually failing the call.
+    let token = await executeTurnstileOnce(10000);
+    if (!token) {
+      console.warn("[Turnstile] first attempt failed, retrying once…");
+      token = await executeTurnstileOnce(10000);
+    }
+    return token;
   }
 
   initTurnstile();

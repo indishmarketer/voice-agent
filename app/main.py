@@ -651,6 +651,10 @@ async def _speak(call: Call, clauses: AsyncIterator[str],
             "type": "error",
             "message": "Sorry, I had trouble speaking just then. Please try again.",
         })
+        # Without this the client stays on whatever status "agent_start" set
+        # (usually "Speaking...") with nothing left to move it forward - the
+        # error banner shows, but the call looks frozen underneath it.
+        await call.send_json({"type": "status", "state": "listening"})
         return ""
     finally:
         call.speaking = None
