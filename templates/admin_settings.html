@@ -63,70 +63,12 @@
     </div>
 </div>
 
-<h2 class="section">AI Models</h2>
-<div class="panel">
-    <p class="hint" style="margin-bottom:16px">
-        Which model each provider call uses. Pick a suggestion from the
-        dropdown or type any other model name your account has access to -
-        it must match the provider's exact identifier, or that call will
-        start failing. Leave a field blank to keep its current value.
-    </p>
-    <form id="models-form">
-        <div style="margin-bottom:16px">
-            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">
-                Pollinations model (conversation / LLM)
-            </label>
-            <input type="text" name="pollinations_model" id="pollinations-model-input"
-                   list="pollinations-model-options" value="{{ models.pollinations_model }}" style="width:100%">
-            <datalist id="pollinations-model-options">
-                <option value="gemini-fast">
-                <option value="mistral-small-3.2">
-                <option value="YoannDev90/mistral-glm-5.2:free">
-            </datalist>
-            <div class="hint" style="margin-top:5px">
-                Example: <code>gemini-fast</code>. More options at
-                <a href="https://pollinations.ai" target="_blank" rel="noopener">pollinations.ai</a>.
-            </div>
-        </div>
-        <div style="margin-bottom:16px">
-            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">
-                Fish Audio model (text-to-speech)
-            </label>
-            <input type="text" name="fish_model" id="fish-model-input"
-                   list="fish-model-options" value="{{ models.fish_model }}" style="width:100%">
-            <datalist id="fish-model-options">
-                <option value="s2.1-pro-free">
-                <option value="s2.1-pro">
-                <option value="s1">
-            </datalist>
-            <div class="hint" style="margin-top:5px">
-                Example: <code>s2.1-pro-free</code>. This is the TTS engine
-                tier, not the voice itself - the voice is set separately via
-                <code>FISH_MODEL_ID</code>. More at
-                <a href="https://docs.fish.audio/developer-guide/models-pricing/models-overview" target="_blank" rel="noopener">docs.fish.audio</a>.
-            </div>
-        </div>
-        <div style="margin-bottom:16px">
-            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">
-                AssemblyAI speech model (speech-to-text)
-            </label>
-            <input type="text" name="aai_speech_model" id="aai-speech-model-input"
-                   list="aai-model-options" value="{{ models.aai_speech_model }}" style="width:100%">
-            <datalist id="aai-model-options">
-                <option value="universal-3-5-pro">
-            </datalist>
-            <div class="hint" style="margin-top:5px">
-                Example: <code>universal-3-5-pro</code>. More options at
-                <a href="https://www.assemblyai.com/docs/getting-started/models" target="_blank" rel="noopener">assemblyai.com/docs</a>
-                - double-check the exact spelling there before typing a new one in.
-            </div>
-        </div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <button type="submit">Save models</button>
-            <span id="models-out" class="status-msg"></span>
-        </div>
-    </form>
-</div>
+<p class="hint" style="margin-top:18px">
+    Looking for the AI models, provider API keys, or Turnstile? Those moved
+    to <a href="/admin/integrations{{ ('?token=' + token) if token else '' }}">Integrations</a> -
+    this page is for the things you built, that page is for the outside
+    services you depend on.
+</p>
 {% endblock %}
 
 {% block script_extra %}
@@ -185,29 +127,6 @@ document.getElementById("branding-form").addEventListener("submit", async (event
     } else {
         brandingOut.textContent = data.error || "Could not save - please try again.";
         brandingOut.className = "status-msg err";
-    }
-});
-
-const modelsOut = document.getElementById("models-out");
-
-document.getElementById("models-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    modelsOut.textContent = "Saving…";
-    modelsOut.className = "status-msg";
-    const form = new FormData(event.target);
-    const payload = Object.fromEntries(form.entries());
-    const res = await fetch(withToken("/admin/settings/models"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok) {
-        modelsOut.textContent = "Saved. Takes effect on the next call.";
-        modelsOut.className = "status-msg";
-    } else {
-        modelsOut.textContent = data.error || "Could not save - please try again.";
-        modelsOut.className = "status-msg err";
     }
 });
 </script>

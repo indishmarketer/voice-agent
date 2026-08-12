@@ -26,7 +26,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import ai_models, branding, config, fillers, leads, llm, mailer, prompts, security, stt, store, tts
+from . import branding, config, fillers, integrations, leads, llm, mailer, prompts, security, stt, store, tts
 from .knowledge import KB
 
 logging.basicConfig(
@@ -71,7 +71,7 @@ COOKIE_MAX_AGE = 365 * 24 * 3600
 async def _startup() -> None:
     store.init()
     KB.load()
-    missing = config.missing_required()
+    missing = integrations.missing_required()
     if missing:
         log.error("MISSING REQUIRED ENV VARS: %s - the agent will refuse calls",
                   ", ".join(missing))
@@ -120,7 +120,7 @@ async def index(request: Request) -> Response:
             "brand": current_branding["brand_name"],
             "tagline": current_branding["tagline"],
             "agent_name": current_branding["agent_name"],
-            "turnstile_site_key": config.TURNSTILE_SITE_KEY,
+            "turnstile_site_key": integrations.turnstile_site_key(),
         },
     )
     if is_new:
@@ -137,7 +137,7 @@ async def healthz() -> str:
 
 @app.post("/api/session/start")
 async def start_session(request: Request) -> Response:
-    if config.missing_required():
+    if integrations.missing_required():
         return JSONResponse(
             {"error": "The agent is not configured yet."}, status_code=503
         )
@@ -987,7 +987,7 @@ async def admin_dashboard(request: Request,
     ctx.update({
         "usage": store.usage_summary(),
         "active": security.active_count(),
-        "turnstile_on": bool(config.TURNSTILE_SECRET_KEY),
+        "turnstile_on": bool(integrations.turnstile_secret_key()),
         "limits": {
             "Sessions per IP per day": config.SESSIONS_PER_IP_PER_DAY,
             "Sessions per visitor per day": config.SESSIONS_PER_VISITOR_PER_DAY,
@@ -1024,10 +1024,36 @@ async def admin_knowledge_page(request: Request,
     return templates.TemplateResponse("admin_knowledge.html", ctx)
 
 
+def _mask_secret(value: str) -> str:
+    """Never round-trip a real secret into the HTML source. The form field
+    itself stays blank (blank on save means "leave unchanged", same as the
+    branding fields); this is only for the "currently set, ending in ...XXXX"
+    hint shown below it."""
+    if not value:
+        return ""
+    return value[-4:] if len(value) > 4 else "••"
+
+
 @app.get("/admin/integrations", response_class=HTMLResponse)
 async def admin_integrations_page(request: Request,
                                   _: None = Depends(_require_admin)) -> Response:
+    current = integrations.get_integrations()
     ctx = _admin_base_context(request, "integrations")
+    ctx.update({
+        "models": {
+            "pollinations_model": current["pollinations_model"],
+            "fish_model": current["fish_model"],
+            "aai_speech_model": current["aai_speech_model"],
+        },
+        # Non-secret - a voice ID and a public site key, safe to show plainly.
+        "fish_model_id": current["fish_model_id"],
+        "turnstile_site_key": current["turnstile_site_key"],
+        # Secret - masked, see _mask_secret above.
+        "assemblyai_key_hint": _mask_secret(current["assemblyai_api_key"]),
+        "pollinations_key_hint": _mask_secret(current["pollinations_api_key"]),
+        "fish_key_hint": _mask_secret(current["fish_api_key"]),
+        "turnstile_secret_hint": _mask_secret(current["turnstile_secret_key"]),
+    })
     return templates.TemplateResponse("admin_integrations.html", ctx)
 
 
@@ -1039,7 +1065,6 @@ async def admin_settings_page(request: Request,
         "agent_rules": prompts.active_behavior_rules(),
         "default_rules": prompts._default_behavior_rules(),
         "branding": branding.get_branding(),
-        "models": ai_models.get_models(),
     })
     return templates.TemplateResponse("admin_settings.html", ctx)
 
@@ -1112,38 +1137,92 @@ async def save_branding(request: Request,
 
 
 MODEL_SETTINGS_FIELDS = {
-    "pollinations_model": ai_models.SETTINGS_KEY_POLLINATIONS_MODEL,
-    "fish_model": ai_models.SETTINGS_KEY_FISH_MODEL,
-    "aai_speech_model": ai_models.SETTINGS_KEY_AAI_SPEECH_MODEL,
+    "pollinations_model": integrations.SETTINGS_KEY_POLLINATIONS_MODEL,
+    "fish_model": integrations.SETTINGS_KEY_FISH_MODEL,
+    "aai_speech_model": integrations.SETTINGS_KEY_AAI_SPEECH_MODEL,
 }
 
 
-@app.post("/admin/settings/models")
+def _save_text_settings(body: dict[str, Any], fields: dict[str, str],
+                        max_len: int = 200) -> Optional[JSONResponse]:
+    """Shared save logic for the several small "a few text fields, blank
+    means leave unchanged" forms on /admin/integrations. Returns an error
+    response to return immediately, or None on success."""
+    updates: dict[str, str] = {}
+    for field_name, settings_key in fields.items():
+        value = body.get(field_name)
+        if value is None or not isinstance(value, str):
+            continue
+        value = value.strip()
+        if len(value) > max_len:
+            return JSONResponse(
+                {"error": f"{field_name} is too long - keep it under {max_len} characters."},
+                status_code=400,
+            )
+        if value:
+            updates[settings_key] = value
+    for settings_key, value in updates.items():
+        store.set_setting(settings_key, value)
+    return None
+
+
+@app.post("/admin/integrations/models")
 async def save_model_settings(request: Request,
                               _: None = Depends(_require_admin)) -> Response:
     body: dict[str, Any] = {}
     with contextlib.suppress(Exception):
         body = await request.json()
 
-    updates: dict[str, str] = {}
-    for field_name, settings_key in MODEL_SETTINGS_FIELDS.items():
-        value = body.get(field_name)
-        if value is None or not isinstance(value, str):
-            continue
-        value = value.strip()
-        if len(value) > 200:
-            return JSONResponse(
-                {"error": f"{field_name} is too long - keep it under 200 characters."},
-                status_code=400,
-            )
-        if value:
-            updates[settings_key] = value
+    error = _save_text_settings(body, MODEL_SETTINGS_FIELDS)
+    if error:
+        return error
 
-    for settings_key, value in updates.items():
-        store.set_setting(settings_key, value)
+    log.info("admin updated AI model settings")
+    return JSONResponse({"ok": True, "models": integrations.get_models()})
 
-    log.info("admin updated AI model settings: %s", ", ".join(updates))
-    return JSONResponse({"ok": True, "models": ai_models.get_models()})
+
+PROVIDER_KEY_FIELDS = {
+    "assemblyai_api_key": integrations.SETTINGS_KEY_ASSEMBLYAI_API_KEY,
+    "pollinations_api_key": integrations.SETTINGS_KEY_POLLINATIONS_API_KEY,
+    "fish_api_key": integrations.SETTINGS_KEY_FISH_API_KEY,
+    "fish_model_id": integrations.SETTINGS_KEY_FISH_MODEL_ID,
+}
+
+
+@app.post("/admin/integrations/keys")
+async def save_provider_keys(request: Request,
+                             _: None = Depends(_require_admin)) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+
+    error = _save_text_settings(body, PROVIDER_KEY_FIELDS, max_len=300)
+    if error:
+        return error
+
+    log.info("admin updated provider API keys/voice ID")
+    return JSONResponse({"ok": True})
+
+
+TURNSTILE_FIELDS = {
+    "turnstile_site_key": integrations.SETTINGS_KEY_TURNSTILE_SITE_KEY,
+    "turnstile_secret_key": integrations.SETTINGS_KEY_TURNSTILE_SECRET_KEY,
+}
+
+
+@app.post("/admin/integrations/turnstile")
+async def save_turnstile_settings(request: Request,
+                                  _: None = Depends(_require_admin)) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+
+    error = _save_text_settings(body, TURNSTILE_FIELDS, max_len=300)
+    if error:
+        return error
+
+    log.info("admin updated Turnstile keys")
+    return JSONResponse({"ok": True})
 
 
 @app.post("/admin/knowledge")

@@ -1,15 +1,177 @@
 {% extends "admin_base.html" %}
 {% block title %}Integrations — Voice Agent Admin{% endblock %}
 {% block page_title %}Integrations{% endblock %}
-{% block page_sub %}Connect other tools to your voice agent.{% endblock %}
+{% block page_sub %}The outside services this agent depends on - models, provider keys, bot protection.{% endblock %}
 
 {% block content %}
-<div class="panel empty" style="padding:70px 20px">
-    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="opacity:.35;margin-bottom:14px">
-        <rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/>
-        <rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/>
-    </svg>
-    <div style="font-weight:600;font-size:15px;margin-bottom:4px">No integrations yet</div>
-    <div class="hint">This is where future connections to other tools will live.</div>
+<h2 class="section">AI Models</h2>
+<div class="panel" style="margin-bottom:22px">
+    <p class="hint" style="margin-bottom:16px">
+        Which model each provider call uses. Pick a suggestion from the
+        dropdown or type any other model name your account has access to -
+        it must match the provider's exact identifier, or that call will
+        start failing. Leave a field blank to keep its current value.
+    </p>
+    <form id="models-form">
+        <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">
+                Pollinations model (conversation / LLM)
+            </label>
+            <input type="text" name="pollinations_model" id="pollinations-model-input"
+                   list="pollinations-model-options" value="{{ models.pollinations_model }}" style="width:100%">
+            <datalist id="pollinations-model-options">
+                <option value="gemini-fast">
+                <option value="mistral-small-3.2">
+                <option value="YoannDev90/mistral-glm-5.2:free">
+            </datalist>
+            <div class="hint" style="margin-top:5px">
+                Example: <code>gemini-fast</code>. More options at
+                <a href="https://pollinations.ai" target="_blank" rel="noopener">pollinations.ai</a>.
+            </div>
+        </div>
+        <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">
+                Fish Audio model (text-to-speech engine tier)
+            </label>
+            <input type="text" name="fish_model" id="fish-model-input"
+                   list="fish-model-options" value="{{ models.fish_model }}" style="width:100%">
+            <datalist id="fish-model-options">
+                <option value="s2.1-pro-free">
+                <option value="s2.1-pro">
+                <option value="s1">
+            </datalist>
+            <div class="hint" style="margin-top:5px">
+                Example: <code>s2.1-pro-free</code>. This is the TTS engine
+                tier, not the voice itself - the voice is the Fish Model ID
+                below. More at
+                <a href="https://docs.fish.audio/developer-guide/models-pricing/models-overview" target="_blank" rel="noopener">docs.fish.audio</a>.
+            </div>
+        </div>
+        <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">
+                AssemblyAI speech model (speech-to-text)
+            </label>
+            <input type="text" name="aai_speech_model" id="aai-speech-model-input"
+                   list="aai-model-options" value="{{ models.aai_speech_model }}" style="width:100%">
+            <datalist id="aai-model-options">
+                <option value="universal-3-5-pro">
+                <option value="slam-1">
+                <option value="universal-2">
+            </datalist>
+            <div class="hint" style="margin-top:5px">
+                Example: <code>universal-3-5-pro</code>. More options at
+                <a href="https://www.assemblyai.com/docs/getting-started/models" target="_blank" rel="noopener">assemblyai.com/docs</a>
+                - double-check the exact spelling there before typing a new one in.
+            </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button type="submit">Save models</button>
+            <span id="models-out" class="status-msg"></span>
+        </div>
+    </form>
 </div>
+
+<h2 class="section">Provider API keys</h2>
+<div class="panel" style="margin-bottom:22px">
+    <p class="hint" style="margin-bottom:16px">
+        Credentials for the three services that make a call actually work.
+        Fields below are blank on load even if a key is set, same as any
+        password field - the hint text under each shows whether one is on
+        file. Leave a field blank on save to keep the current key.
+    </p>
+    <form id="keys-form">
+        <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">AssemblyAI API key</label>
+            <input type="text" name="assemblyai_api_key" id="assemblyai-key-input"
+                   placeholder="{{ 'Currently set, ending in ' + assemblyai_key_hint if assemblyai_key_hint else 'Not set' }}" style="width:100%">
+        </div>
+        <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Pollinations API key</label>
+            <input type="text" name="pollinations_api_key" id="pollinations-key-input"
+                   placeholder="{{ 'Currently set, ending in ' + pollinations_key_hint if pollinations_key_hint else 'Not set' }}" style="width:100%">
+        </div>
+        <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Fish Audio API key</label>
+            <input type="text" name="fish_api_key" id="fish-key-input"
+                   placeholder="{{ 'Currently set, ending in ' + fish_key_hint if fish_key_hint else 'Not set' }}" style="width:100%">
+        </div>
+        <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Fish Audio voice / model ID</label>
+            <input type="text" name="fish_model_id" id="fish-model-id-input" value="{{ fish_model_id }}" style="width:100%">
+            <div class="hint" style="margin-top:5px">
+                Not secret - the specific cloned/library voice this agent
+                speaks with. Find or create one at
+                <a href="https://fish.audio" target="_blank" rel="noopener">fish.audio</a>.
+            </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button type="submit">Save keys</button>
+            <span id="keys-out" class="status-msg"></span>
+        </div>
+    </form>
+</div>
+
+<h2 class="section">Cloudflare Turnstile</h2>
+<div class="panel">
+    <p class="hint" style="margin-bottom:16px">
+        Free bot protection on the dial screen. Leave both blank to run
+        without it (fine for testing, not recommended once this is public).
+        Get a site key and secret key from
+        <a href="https://dash.cloudflare.com" target="_blank" rel="noopener">dash.cloudflare.com</a>
+        → Turnstile → Add site (Invisible widget).
+    </p>
+    <form id="turnstile-form">
+        <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Site key</label>
+            <input type="text" name="turnstile_site_key" id="turnstile-site-input" value="{{ turnstile_site_key }}" style="width:100%">
+            <div class="hint" style="margin-top:5px">Not secret - this one is already visible in the page source of the public dial screen.</div>
+        </div>
+        <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Secret key</label>
+            <input type="text" name="turnstile_secret_key" id="turnstile-secret-input"
+                   placeholder="{{ 'Currently set, ending in ' + turnstile_secret_hint if turnstile_secret_hint else 'Not set' }}" style="width:100%">
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button type="submit">Save Turnstile</button>
+            <span id="turnstile-out" class="status-msg"></span>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block script_extra %}
+<script>
+const TOKEN = {{ token | tojson }};
+const withToken = (path) => path + "?token=" + encodeURIComponent(TOKEN);
+
+async function saveForm(formId, outId, path, { clearOnSuccess = false } = {}) {
+    const form = document.getElementById(formId);
+    const out = document.getElementById(outId);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        out.textContent = "Saving…";
+        out.className = "status-msg";
+        const data = new FormData(form);
+        const payload = Object.fromEntries(data.entries());
+        const res = await fetch(withToken(path), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok) {
+            out.textContent = "Saved. Takes effect on the next call.";
+            out.className = "status-msg";
+            if (clearOnSuccess) form.reset();
+        } else {
+            out.textContent = body.error || "Could not save - please try again.";
+            out.className = "status-msg err";
+        }
+    });
+}
+
+saveForm("models-form", "models-out", "/admin/integrations/models");
+saveForm("keys-form", "keys-out", "/admin/integrations/keys", { clearOnSuccess: true });
+saveForm("turnstile-form", "turnstile-out", "/admin/integrations/turnstile");
+</script>
 {% endblock %}

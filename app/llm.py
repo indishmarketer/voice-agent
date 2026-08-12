@@ -13,7 +13,7 @@ from typing import Any, AsyncIterator, Optional
 
 import httpx
 
-from . import ai_models, config
+from . import config, integrations
 
 _HEADERS = {"Content-Type": "application/json"}
 
@@ -29,14 +29,14 @@ _MIN_SOFT = 60
 
 
 def _auth() -> dict[str, str]:
-    return {**_HEADERS, "Authorization": f"Bearer {config.POLLINATIONS_API_KEY}"}
+    return {**_HEADERS, "Authorization": f"Bearer {integrations.pollinations_api_key()}"}
 
 
 async def stream_reply(messages: list[dict[str, str]],
                        max_tokens: Optional[int] = None) -> AsyncIterator[str]:
     """Yield text deltas as the model produces them."""
     payload = {
-        "model": ai_models.pollinations_model(),
+        "model": integrations.pollinations_model(),
         "messages": messages,
         "stream": True,
         "temperature": config.LLM_TEMPERATURE,
@@ -120,7 +120,7 @@ async def limit(clauses: AsyncIterator[str], max_chars: int) -> AsyncIterator[st
 async def complete(messages: list[dict[str, str]], max_tokens: int = 300) -> str:
     """Blocking single-shot call. Only used after a call ends."""
     payload = {
-        "model": ai_models.pollinations_model(),
+        "model": integrations.pollinations_model(),
         "messages": messages,
         "temperature": 0.2,
         "max_tokens": max_tokens,

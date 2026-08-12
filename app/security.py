@@ -20,7 +20,7 @@ from typing import Any, Optional
 import httpx
 from fastapi import Request
 
-from . import config, store
+from . import config, integrations, store
 
 
 class Denied(Exception):
@@ -102,7 +102,8 @@ def origin_allowed(origin: str) -> bool:
 # --- Bot check --------------------------------------------------------------
 
 async def verify_turnstile(token: str, ip: str) -> bool:
-    if not config.TURNSTILE_SECRET_KEY:
+    secret = integrations.turnstile_secret_key()
+    if not secret:
         return True  # not configured - skip rather than lock everyone out
     if not token:
         return False
@@ -111,7 +112,7 @@ async def verify_turnstile(token: str, ip: str) -> bool:
             res = await client.post(
                 "https://challenges.cloudflare.com/turnstile/v0/siteverify",
                 data={
-                    "secret": config.TURNSTILE_SECRET_KEY,
+                    "secret": secret,
                     "response": token,
                     "remoteip": ip,
                 },

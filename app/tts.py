@@ -13,7 +13,7 @@ from typing import AsyncIterator, Awaitable, Callable, Optional
 import ormsgpack
 import websockets
 
-from . import ai_models, config
+from . import config, integrations
 
 log = logging.getLogger("tts")
 
@@ -24,13 +24,13 @@ class FishStream:
     """One synthesis session. Open early, feed clauses, then finish."""
 
     def __init__(self, voice_id: Optional[str] = None) -> None:
-        self.voice_id = voice_id or config.FISH_MODEL_ID
+        self.voice_id = voice_id or integrations.fish_model_id()
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
 
     async def open(self, attempts: int = 2) -> None:
         headers = {
-            "Authorization": f"Bearer {config.FISH_API_KEY}",
-            "model": ai_models.fish_model(),
+            "Authorization": f"Bearer {integrations.fish_api_key()}",
+            "model": integrations.fish_model(),
         }
         last: Optional[Exception] = None
         for attempt in range(attempts):

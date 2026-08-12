@@ -124,12 +124,3 @@ SHEETS_URL = _env(
     "https://docs.google.com/spreadsheets/d/"
     "1Pk0faDONiMpL5EgbUudXPjZ770IkW3g1WoUrcKM6N78/edit?gid=0#gid=0",
 )
-
-
-def missing_required() -> list[str]:
-    """Names of credentials the app cannot run without."""
-    missing = []
-    for name in ("ASSEMBLYAI_API_KEY", "POLLINATIONS_API_KEY", "FISH_API_KEY"):
-        if not globals()[name]:
-            missing.append(name)
-    return missing

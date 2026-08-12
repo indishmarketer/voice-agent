@@ -15,7 +15,7 @@ import logging
 import random
 from pathlib import Path
 
-from . import config, tts
+from . import config, integrations, tts
 
 log = logging.getLogger("fillers")
 
@@ -58,7 +58,7 @@ def _cache_dir() -> Path:
     # produces a new directory, so a stale clip can never be served under an
     # index whose phrase has changed.
     fingerprint = hashlib.sha1(
-        ("|".join(PHRASES) + config.FISH_MODEL_ID +
+        ("|".join(PHRASES) + integrations.fish_model_id() +
          str(config.FISH_SAMPLE_RATE)).encode()
     ).hexdigest()[:10]
     path = config.DATA_DIR / "fillers" / fingerprint
@@ -90,7 +90,7 @@ async def warm() -> None:
         if load_cached() == len(PHRASES):
             log.info("filler clips loaded from cache (%d)", len(_clips))
             return
-        if not config.FISH_API_KEY:
+        if not integrations.fish_api_key():
             return
 
         for index, phrase in enumerate(PHRASES):

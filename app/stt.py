@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from . import ai_models, config
+from . import config, integrations
 
 log = logging.getLogger("stt")
 
@@ -26,7 +26,7 @@ async def mint_token() -> str:
     async with httpx.AsyncClient(timeout=10) as client:
         response = await client.get(
             f"{config.AAI_TOKEN_URL}?{urlencode(params)}",
-            headers={"Authorization": config.ASSEMBLYAI_API_KEY},
+            headers={"Authorization": integrations.assemblyai_api_key()},
         )
     if response.status_code != 200:
         log.error("assemblyai token mint failed %s: %s",
@@ -51,7 +51,7 @@ def websocket_url(token: str) -> str:
         "token": token,
         "sample_rate": config.AAI_SAMPLE_RATE,
         "encoding": "pcm_s16le",
-        "speech_model": ai_models.aai_speech_model(),
+        "speech_model": integrations.aai_speech_model(),
         "format_turns": "true",
         "end_of_turn_confidence_threshold": "0.7",
         "min_turn_silence": "600",
