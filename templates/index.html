@@ -72,6 +72,33 @@
                 <div id="transcript-text" class="transcript-text">Calling…</div>
             </div>
 
+            <!-- Shown instead of the transcript box while the agent is
+                 collecting contact details. Voice fills these fields in as
+                 the caller speaks; the caller can also just type directly,
+                 since voice transcription of an email is not reliable. -->
+            <div id="contact-card" class="contact-card">
+                <div class="contact-card-title">Your details</div>
+                <label class="contact-field">
+                    <span>Name</span>
+                    <input id="contact-name" type="text" autocomplete="name"
+                           placeholder="Your name">
+                </label>
+                <label class="contact-field">
+                    <span>Email</span>
+                    <input id="contact-email" type="email" autocomplete="email"
+                           placeholder="you@example.com">
+                </label>
+                <label class="contact-field">
+                    <span>Phone <em>(optional)</em></span>
+                    <input id="contact-phone" type="tel" autocomplete="tel"
+                           placeholder="Phone number">
+                </label>
+                <div class="contact-card-actions">
+                    <button id="btn-contact-skip" class="btn-text" type="button">Not now</button>
+                    <button id="btn-contact-confirm" class="btn-primary" type="button" disabled>Confirm</button>
+                </div>
+            </div>
+
             <div class="call-controls">
                 <button id="btn-mute" class="btn-control btn-mute" aria-label="Mute microphone">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

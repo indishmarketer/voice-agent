@@ -11,6 +11,7 @@ Nothing waits for the full reply at any stage.
 """
 import asyncio
 import contextlib
+import datetime
 import logging
 import time
 import uuid
@@ -126,17 +127,26 @@ async def start_session(request: Request) -> Response:
     ip_hash = security.hash_ip(ip)
     visitor_id, is_new = _visitor_id_from(request)
 
-    if not await security.verify_turnstile(body.get("turnstile_token", ""), ip):
+    # The owner testing their own deployed site would otherwise trip the same
+    # per-IP daily cap as the public - incognito clears the visitor cookie but
+    # not the IP. A token only the owner has (never shipped in the client
+    # bundle - see static/app.js) skips both the bot check and the quotas.
+    is_owner = security.is_admin(request.headers.get("x-owner-token", ""))
+
+    if not is_owner and not await security.verify_turnstile(
+        body.get("turnstile_token", ""), ip
+    ):
         return JSONResponse(
             {"error": "We could not verify you are human. Please reload and retry."},
             status_code=403,
         )
 
-    try:
-        security.enforce_quotas(ip_hash, visitor_id)
-    except security.Denied as denied:
-        log.info("session denied (%s) ip=%s", denied.reason, ip_hash[:8])
-        return JSONResponse({"error": denied.message}, status_code=denied.status)
+    if not is_owner:
+        try:
+            security.enforce_quotas(ip_hash, visitor_id)
+        except security.Denied as denied:
+            log.info("session denied (%s) ip=%s", denied.reason, ip_hash[:8])
+            return JSONResponse({"error": denied.message}, status_code=denied.status)
 
     session_id = uuid.uuid4().hex
     try:
@@ -194,6 +204,23 @@ class Call:
         # Set as soon as the first frame of *real* (non-filler) audio goes out.
         self.audio_started = asyncio.Event()
         self.visitor = store.touch_visitor(visitor_id)
+
+        # Lead capture: the LLM asks for contact details in its own words and
+        # signals it with a marker (see prompts.CONTACT_MARKER); the backend
+        # then takes over collecting and confirming them on screen rather than
+        # trusting voice transcription of an email address.
+        self.awaiting_contact = False
+        self.contact_fields: dict[str, Optional[str]] = {
+            "name": None, "email": None, "phone": None,
+        }
+        self.contact_nudged = False
+        # Once True, the marker is ignored for the rest of the call - covers
+        # confirm, skip, and decline, so the model asking again cannot reopen
+        # the form after the caller has already answered.
+        self.contact_flow_done = False
+        # What the caller explicitly confirmed on screen, if they got that
+        # far. Passed to the post-call pass, which must never overwrite it.
+        self.contact_confirmed_data: Optional[dict[str, Any]] = None
 
     @property
     def elapsed(self) -> float:
@@ -288,16 +315,18 @@ async def agent_socket(ws: WebSocket) -> None:
         # Summarising and lead extraction happen off the call path.
         if call.history:
             asyncio.create_task(
-                _finalise(session_id, visitor_id, list(call.history))
+                _finalise(session_id, visitor_id, list(call.history),
+                         call.contact_confirmed_data)
             )
         log.info("call %s ended after %.0fs, %d turns",
                  session_id[:8], call.elapsed, call.turn_count)
 
 
 async def _finalise(session_id: str, visitor_id: str,
-                    history: list[dict[str, str]]) -> None:
+                    history: list[dict[str, str]],
+                    confirmed_contact: Optional[dict[str, Any]] = None) -> None:
     with contextlib.suppress(Exception):
-        await leads.process_session(session_id, visitor_id, history)
+        await leads.process_session(session_id, visitor_id, history, confirmed_contact)
 
 
 async def _watchdog(call: Call) -> None:
@@ -348,6 +377,12 @@ async def _run_call(call: Call) -> None:
         elif kind == "barge_in":
             await call.stop_speaking()
             await call.send_json({"type": "status", "state": "listening"})
+
+        elif kind == "contact_confirmed":
+            await _start_turn(call, _handle_contact_confirmed(call, message))
+
+        elif kind == "contact_skip":
+            await _start_turn(call, _handle_contact_skip(call))
 
         elif kind == "stt_usage":
             # Client-reported, used for accounting and the daily budget.
@@ -416,13 +451,30 @@ async def _handle_turn(call: Call, text: str) -> None:
     # No stop_speaking() here: this coroutine *is* call.turn, so cancelling
     # would cancel itself. _start_turn already cleared the previous turn.
     call.cancel = asyncio.Event()
-    call.turn_count += 1
 
     call.history.append({"role": "user", "content": text})
     store.add_turn(call.session_id, call.visitor_id, "user", text)
     await call.send_json({"type": "user_text", "text": text})
     await call.send_json({"type": "status", "state": "thinking"})
 
+    # While the contact card is showing, the caller's replies go to a fast,
+    # scoped extraction pass instead of the main LLM - see _handle_contact_reply.
+    # This does not count against the turn limit; it is bookkeeping, not
+    # conversation.
+    if call.awaiting_contact:
+        await _handle_contact_reply(call, text)
+        return
+
+    call.turn_count += 1
+    await _respond_with_llm(call, text)
+
+
+async def _respond_with_llm(call: Call, text: str) -> None:
+    """Generate and speak a normal conversational reply.
+
+    Also used to let the model react naturally after the caller declines or
+    skips the contact card, so the conversation does not just go silent.
+    """
     # Acknowledge instantly. The caller hears a reply within a few hundred
     # milliseconds while the model is still thinking, and the real answer is
     # queued straight behind it by the browser's audio scheduler.
@@ -438,6 +490,9 @@ async def _handle_turn(call: Call, text: str) -> None:
     system = prompts.build_system_prompt(
         text, call.visitor, _history_hint(call.visitor_id)
     )
+    if call.contact_flow_done:
+        system += ("\n\nContact details have already been asked for this call - "
+                   "do not ask again, even if you would otherwise.")
     if call.remaining < 25:
         system += ("\n\nThe call is about to end. Wrap up warmly in one sentence "
                    f"and point them to {config.WEBSITE_URL}.")
@@ -445,8 +500,10 @@ async def _handle_turn(call: Call, text: str) -> None:
     messages = [{"role": "system", "content": system}]
     messages += call.history[-config.HISTORY_TURNS:]
 
-    clauses = llm.limit(
-        llm.sentences(llm.stream_reply(messages)), config.MAX_REPLY_CHARS
+    marker_flag = {"seen": False}
+    clauses = _strip_contact_marker(
+        llm.limit(llm.sentences(llm.stream_reply(messages)), config.MAX_REPLY_CHARS),
+        marker_flag,
     )
     try:
         spoken = await _speak(call, clauses)
@@ -458,6 +515,110 @@ async def _handle_turn(call: Call, text: str) -> None:
     if spoken:
         call.history.append({"role": "assistant", "content": spoken})
         store.add_turn(call.session_id, call.visitor_id, "assistant", spoken)
+
+    if marker_flag["seen"] and not call.contact_flow_done:
+        call.awaiting_contact = True
+        call.contact_nudged = False
+        await call.send_json({"type": "show_contact_form", **call.contact_fields})
+
+
+async def _strip_contact_marker(clauses: AsyncIterator[str],
+                                flag: dict[str, bool]) -> AsyncIterator[str]:
+    """Remove prompts.CONTACT_MARKER from the clause stream before it can ever
+    reach text-to-speech, and record whether it was seen.
+
+    The model is told to send it as its own clause at the very end of a turn,
+    which is the common case and arrives cleanly via llm.sentences()'s final
+    tail-yield. The suffix check is defensive, in case the model glues it onto
+    the last sentence instead.
+    """
+    marker = prompts.CONTACT_MARKER
+    async for clause in clauses:
+        stripped = clause.strip()
+        if stripped == marker:
+            flag["seen"] = True
+            continue
+        if stripped.endswith(marker):
+            flag["seen"] = True
+            remainder = stripped[: -len(marker)].strip()
+            if remainder:
+                yield remainder
+            continue
+        yield clause
+
+
+async def _handle_contact_reply(call: Call, text: str) -> None:
+    """The caller's spoken answer to 'could I get your name, email, phone'."""
+    data = await leads.extract_contact_reply(text)
+
+    if data.get("declined"):
+        call.awaiting_contact = False
+        call.contact_flow_done = True
+        await call.send_json({"type": "hide_contact_form"})
+        await _respond_with_llm(call, text)
+        return
+
+    changed = False
+    for key in ("name", "email", "phone"):
+        if data.get(key):
+            call.contact_fields[key] = data[key]
+            changed = True
+
+    if changed:
+        await call.send_json({"type": "contact_fields", **call.contact_fields})
+
+    if not call.contact_nudged:
+        call.contact_nudged = True
+        nudge = (
+            "Great, please check the details on screen and confirm."
+            if changed else
+            "Sorry, I did not quite catch that - you can also just type your "
+            "name, email and phone number on screen."
+        )
+        call.history.append({"role": "assistant", "content": nudge})
+        store.add_turn(call.session_id, call.visitor_id, "assistant", nudge)
+        await _speak(call, _once(nudge), announce=nudge)
+    else:
+        await call.send_json({"type": "status", "state": "listening"})
+
+
+async def _handle_contact_confirmed(call: Call, message: dict[str, Any]) -> None:
+    """The caller edited/reviewed the card and clicked Confirm."""
+    name = (message.get("name") or "").strip()[:120] or None
+    email = (message.get("email") or "").strip().lower()[:200] or None
+    phone = (message.get("phone") or "").strip()[:40] or None
+
+    call.contact_fields = {"name": name, "email": email, "phone": phone}
+    call.contact_confirmed_data = dict(call.contact_fields)
+    call.awaiting_contact = False
+    call.contact_flow_done = True
+
+    transcript = leads.transcript_text(call.history)
+    lead_id = store.save_lead(
+        call.session_id, call.visitor_id, call.contact_fields, transcript
+    )
+    store.update_visitor_memory(call.visitor_id, name=name, email=email, phone=phone)
+    log.info("lead %s confirmed live for session %s", lead_id, call.session_id[:8])
+
+    await call.send_json({"type": "contact_saved"})
+
+    thanks = ("Thank you, that is saved. Our team will reach out soon. Is there "
+             "anything else I can help with?")
+    call.history.append({"role": "assistant", "content": thanks})
+    store.add_turn(call.session_id, call.visitor_id, "assistant", thanks)
+    await _speak(call, _once(thanks), announce=thanks)
+
+
+async def _handle_contact_skip(call: Call) -> None:
+    """The caller clicked 'not now' instead of confirming."""
+    call.awaiting_contact = False
+    call.contact_flow_done = True
+    await call.send_json({"type": "hide_contact_form"})
+
+    text = "No thanks, not right now."
+    call.history.append({"role": "user", "content": text})
+    store.add_turn(call.session_id, call.visitor_id, "user", text)
+    await _respond_with_llm(call, text)
 
 
 async def _speak(call: Call, clauses: AsyncIterator[str],
@@ -509,15 +670,25 @@ def _require_admin(request: Request) -> None:
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin(request: Request, _: None = Depends(_require_admin)) -> Response:
+    leads_out = []
+    for lead in store.list_leads(100):
+        lead = dict(lead)
+        lead["when"] = datetime.datetime.fromtimestamp(
+            lead["created_at"], tz=datetime.timezone.utc
+        ).strftime("%b %d, %H:%M")
+        leads_out.append(lead)
+
+    token = request.query_params.get("token", "")
     return templates.TemplateResponse(
         "admin.html",
         {
             "request": request,
-            "token": request.query_params.get("token", ""),
+            "token": token,
+            "owner_link": f"{request.url.scheme}://{request.url.netloc}/?owner={token}",
             "usage": store.usage_summary(),
             "active": security.active_count(),
             "kb": KB.stats(),
-            "leads": store.list_leads(100),
+            "leads": leads_out,
             "limits": {
                 "Sessions per IP per day": config.SESSIONS_PER_IP_PER_DAY,
                 "Sessions per visitor per day": config.SESSIONS_PER_VISITOR_PER_DAY,

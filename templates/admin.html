@@ -3,54 +3,121 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice Agent — Admin</title>
+    <title>{{ usage.day }} — Voice Agent Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        :root { color-scheme: dark; }
+        :root {
+            color-scheme: dark;
+            --bg-dark: #08090d;
+            --bg-panel: #14161d;
+            --glass: rgba(255, 255, 255, 0.045);
+            --glass-border: rgba(255, 255, 255, 0.09);
+            --accent: #6d6af2;
+            --accent-2: #d6549e;
+            --success: #22c55e;
+            --warn: #f59e0b;
+            --danger: #ef4444;
+            --text-main: #f3f4f6;
+            --text-muted: #92959f;
+        }
         * { box-sizing: border-box; }
         body {
-            margin: 0; padding: 32px 20px; background: #0f1115; color: #f3f4f6;
+            margin: 0; padding: 40px 24px 80px;
+            background:
+                radial-gradient(900px 500px at 12% -10%, rgba(109,106,242,.16), transparent 60%),
+                radial-gradient(700px 420px at 100% 0%, rgba(214,84,158,.12), transparent 55%),
+                var(--bg-dark);
+            color: var(--text-main);
             font: 15px/1.55 'Inter', system-ui, -apple-system, sans-serif;
         }
-        .wrap { max-width: 1080px; margin: 0 auto; }
-        h1 { font-size: 22px; margin: 0 0 4px; }
-        .sub { color: #9ca3af; font-size: 13px; margin-bottom: 28px; }
-        h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 1px;
-             color: #9ca3af; margin: 34px 0 12px; }
+        .wrap { max-width: 1100px; margin: 0 auto; }
+
+        .topbar { display: flex; align-items: baseline; justify-content: space-between;
+                  flex-wrap: wrap; gap: 10px; margin-bottom: 6px; }
+        h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+        .sub { color: var(--text-muted); font-size: 13px; }
+        .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+                    background: var(--success); margin-right: 6px;
+                    box-shadow: 0 0 0 3px rgba(34,197,94,.18); }
+
+        h2 { font-size: 12.5px; text-transform: uppercase; letter-spacing: 1.2px;
+             color: var(--text-muted); font-weight: 600; margin: 40px 0 14px; }
+
         .cards { display: grid; gap: 12px;
                  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
-        .card { background: #1a1d24; border: 1px solid #262b35; border-radius: 12px;
-                padding: 16px; }
-        .card .n { font-size: 26px; font-weight: 600; }
-        .card .l { color: #9ca3af; font-size: 12px; text-transform: uppercase;
-                   letter-spacing: .5px; margin-top: 4px; }
-        .scroll { overflow-x: auto; border: 1px solid #262b35; border-radius: 12px; }
-        table { width: 100%; border-collapse: collapse; font-size: 13px;
-                min-width: 760px; }
-        th, td { text-align: left; padding: 10px 12px;
-                 border-bottom: 1px solid #262b35; vertical-align: top; }
-        th { background: #171a21; color: #9ca3af; font-weight: 500;
-             white-space: nowrap; }
-        td.wrap-cell { max-width: 320px; }
-        .pill { display: inline-block; padding: 2px 9px; border-radius: 99px;
-                font-size: 11px; font-weight: 600; }
-        .yes { background: rgba(16,185,129,.15); color: #10b981; }
-        .no  { background: rgba(156,163,175,.15); color: #9ca3af; }
-        .warn { background: rgba(245,158,11,.15); color: #f59e0b; }
-        form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-        input[type=file] { color: #9ca3af; font-size: 13px; }
-        button { background: #5e6ad2; color: #fff; border: 0; border-radius: 8px;
-                 padding: 9px 16px; font-size: 13px; cursor: pointer; }
-        button:hover { background: #7380eb; }
-        code { background: #171a21; padding: 2px 6px; border-radius: 5px;
-               font-size: 12px; }
-        .empty { color: #9ca3af; padding: 18px 12px; }
-        #kb-out { color: #10b981; font-size: 13px; }
+        .card {
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 14px;
+            padding: 16px 18px;
+        }
+        .card .n { font-size: 25px; font-weight: 600; letter-spacing: -0.01em; }
+        .card .l { color: var(--text-muted); font-size: 11.5px; text-transform: uppercase;
+                   letter-spacing: .5px; margin-top: 5px; }
+
+        .panel {
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 14px;
+            padding: 18px 20px;
+        }
+        .panel p { margin: 0 0 10px; }
+        .panel .hint { color: var(--text-muted); font-size: 13px; }
+
+        .scroll { overflow-x: auto; border: 1px solid var(--glass-border);
+                  border-radius: 14px; background: var(--glass); backdrop-filter: blur(10px); }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 820px; }
+        th, td { text-align: left; padding: 11px 14px;
+                 border-bottom: 1px solid var(--glass-border); vertical-align: top; }
+        tr:last-child td { border-bottom: none; }
+        th { color: var(--text-muted); font-weight: 500; font-size: 11.5px;
+             text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+        td.wrap-cell { max-width: 300px; }
+        td.mono { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-muted); }
+
+        .pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px;
+                border-radius: 99px; font-size: 11px; font-weight: 600; }
+        .yes { background: rgba(34,197,94,.15); color: var(--success); }
+        .no  { background: rgba(146,149,159,.15); color: var(--text-muted); }
+        .warn { background: rgba(245,158,11,.15); color: var(--warn); }
+
+        form.upload { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+        input[type=file] { color: var(--text-muted); font-size: 13px; }
+
+        button, .btn {
+            font-family: inherit;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            color: #fff; border: 0; border-radius: 9px;
+            padding: 9px 16px; font-size: 13px; font-weight: 500; cursor: pointer;
+            transition: transform .1s ease;
+        }
+        button:hover, .btn:hover { transform: translateY(-1px); }
+        button.ghost {
+            background: rgba(255,255,255,.08); border: 1px solid var(--glass-border);
+        }
+
+        code { background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 6px; font-size: 12px; }
+        .empty { color: var(--text-muted); padding: 20px 14px; }
+        #kb-out { color: var(--success); font-size: 13px; }
+
+        .owner-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .owner-row input { flex: 1; min-width: 220px; font-family: inherit; font-size: 12.5px;
+             background: rgba(255,255,255,.06); border: 1px solid var(--glass-border);
+             color: var(--text-muted); border-radius: 8px; padding: 8px 10px; }
+        #copy-out { font-size: 12.5px; color: var(--success); min-width: 60px; }
+
+        ::-webkit-scrollbar { height: 6px; width: 6px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 4px; }
     </style>
 </head>
 <body>
 <div class="wrap">
-    <h1>Voice Agent Admin</h1>
-    <div class="sub">Usage for {{ usage.day }} (UTC) · {{ active }} call(s) in progress</div>
+    <div class="topbar">
+        <h1>Voice Agent</h1>
+        <div class="sub"><span class="live-dot"></span>{{ active }} call(s) in progress · {{ usage.day }} UTC</div>
+    </div>
 
     <h2>Usage</h2>
     <div class="cards">
@@ -76,37 +143,52 @@
         {% endfor %}
     </div>
 
+    <h2>Owner testing link</h2>
+    <div class="panel">
+        <p class="hint" style="margin-bottom:12px">
+            Open this once on any device to skip Turnstile and the daily call
+            limits on that browser only - useful for testing the live site
+            without eating into the public quota. It only works because you
+            already have this admin page open.
+        </p>
+        <div class="owner-row">
+            <input id="owner-link" type="text" readonly value="{{ owner_link }}">
+            <button type="button" id="copy-link">Copy link</button>
+            <span id="copy-out"></span>
+        </div>
+    </div>
+
     <h2>Knowledge base</h2>
-    <div class="card">
-        <p style="margin-top:0">
+    <div class="panel">
+        <p>
             Mode: <code>{{ kb.mode }}</code> ·
             {{ kb.chunks }} sections · {{ kb.characters }} characters ·
             files: {{ kb.files | join(', ') if kb.files else 'none yet' }}
         </p>
-        <p style="color:#9ca3af;font-size:13px">
+        <p class="hint">
             In <code>inline</code> mode the agent sees the whole knowledge base on
             every turn. Once it grows past the inline limit it automatically
             switches to <code>retrieval</code> and only pulls the sections that
             match what the caller asked.
         </p>
-        <form id="kb-form">
+        <form id="kb-form" class="upload">
             <input type="file" name="file" accept=".md" required>
             <button type="submit">Upload .md</button>
-            <button type="button" id="kb-reload">Reload from disk</button>
+            <button type="button" id="kb-reload" class="ghost">Reload from disk</button>
             <span id="kb-out"></span>
         </form>
     </div>
 
-    <h2>Leads</h2>
+    <h2>Leads ({{ leads | length }})</h2>
     <div class="scroll">
     <table>
         <tr>
-            <th>When</th><th>Name</th><th>Email</th><th>Phone</th>
+            <th>When (UTC)</th><th>Name</th><th>Email</th><th>Phone</th>
             <th>Company</th><th>Problem</th><th>Interest</th><th>Sheet</th>
         </tr>
         {% for lead in leads %}
         <tr>
-            <td>{{ lead.created_at | int | string }}</td>
+            <td class="mono">{{ lead.when }}</td>
             <td>{{ lead.name or '—' }}</td>
             <td>{{ lead.email or '—' }}</td>
             <td>{{ lead.phone or '—' }}</td>
@@ -127,24 +209,37 @@
 
 <script>
 const TOKEN = {{ token | tojson }};
-const out = document.getElementById("kb-out");
+const kbOut = document.getElementById("kb-out");
 
 document.getElementById("kb-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    out.textContent = "Uploading…";
+    kbOut.textContent = "Uploading…";
     const body = new FormData(event.target);
     const res = await fetch("/admin/knowledge?token=" + encodeURIComponent(TOKEN),
         { method: "POST", body });
     const data = await res.json().catch(() => ({}));
-    out.textContent = res.ok ? "Uploaded. Reloading…" : (data.error || "Failed.");
+    kbOut.textContent = res.ok ? "Uploaded. Reloading…" : (data.error || "Failed.");
     if (res.ok) setTimeout(() => location.reload(), 700);
 });
 
 document.getElementById("kb-reload").addEventListener("click", async () => {
-    out.textContent = "Reloading…";
+    kbOut.textContent = "Reloading…";
     await fetch("/admin/knowledge/reload?token=" + encodeURIComponent(TOKEN),
         { method: "POST" });
     location.reload();
+});
+
+document.getElementById("copy-link").addEventListener("click", async () => {
+    const input = document.getElementById("owner-link");
+    const out = document.getElementById("copy-out");
+    try {
+        await navigator.clipboard.writeText(input.value);
+        out.textContent = "Copied!";
+    } catch (_) {
+        input.select();
+        out.textContent = "Select & copy";
+    }
+    setTimeout(() => { out.textContent = ""; }, 2000);
 });
 </script>
 </body>

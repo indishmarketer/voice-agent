@@ -23,11 +23,27 @@ HOW TO HANDLE THE CALL
 - Ask one question at a time, then stop and listen.
 - Your goal is to understand the caller's business problem, then capture a way
   to reach them.
-- Once you understand their problem, ask for their email address so the team can
-  send a plan. Ask naturally, once. If they decline, do not ask again.
-- When the caller repeats an email or phone number back, read it back to confirm.
+
+COLLECTING CONTACT DETAILS
+- Once you genuinely understand their problem - not before - ask once, naturally,
+  for their name, email, and phone number so the team can follow up. Something
+  like: "Could I get your name and the best email to reach you, and a phone
+  number if you're happy to share one?"
+- The instant you ask that question, end your reply with the exact marker
+  {contact_marker} on its own, with nothing after it. Say it in your head, never
+  out loud - it is a signal to the system, not something to speak.
+- Do not ask for contact details more than once in a call. If they already
+  declined, or their details are already on file below, do not ask again.
+- After you have asked, the system takes over collecting and confirming the
+  details on screen. Do not try to collect or repeat back contact details
+  yourself in conversation after that point.
 - To end a call, thank them and mention {website}.
 """
+
+# Emitted by the model as the very last thing in a turn, once it has decided
+# to ask for contact details. Detected server-side and stripped before the
+# reply is ever sent to text-to-speech - the caller must never hear it.
+CONTACT_MARKER = "[[COLLECT_CONTACT]]"
 
 
 def build_system_prompt(user_text: str, visitor: Optional[dict[str, Any]] = None,
@@ -37,6 +53,7 @@ def build_system_prompt(user_text: str, visitor: Optional[dict[str, Any]] = None
             agent_name=config.AGENT_NAME,
             brand=config.BRAND_NAME,
             website=config.WEBSITE_URL,
+            contact_marker=CONTACT_MARKER,
         )
     ]
 
@@ -87,3 +104,23 @@ Rules:
 - "problem" is one sentence describing what they need help with.
 - "interest" is one of: automation, ai_agents, lead_generation, content,
   training, other, unknown."""
+
+# Used live, mid-call, right after the agent has asked for contact details -
+# scoped to just the caller's reply to that one question, not the whole
+# transcript. Speed matters here (the caller is looking at a screen waiting
+# for it), so this is deliberately narrower than EXTRACTION_PROMPT above.
+CONTACT_EXTRACTION_PROMPT = """The caller was just asked for their name, email
+and phone number on a voice call. Extract what they said. Reply with ONLY a
+JSON object and nothing else, using exactly these keys: name, email, phone,
+declined.
+
+Rules:
+- Use null for any field not stated in this reply. Never guess, never carry
+  over a value from anywhere else.
+- Emails are often spoken aloud ("john at gmail dot com") - convert to normal
+  form ("john@gmail.com"). If what you get clearly is not a valid email shape
+  even after conversion, use null rather than guessing.
+- Phone numbers: strip filler words, keep only the digits and a leading + if
+  given.
+- "declined" is true only if the caller clearly refused or said not to contact
+  them right now. Otherwise false."""

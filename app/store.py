@@ -192,6 +192,36 @@ def recent_turns(visitor_id: str, limit: int = 40) -> list[dict[str, Any]]:
 
 def save_lead(session_id: str, visitor_id: str, data: dict[str, Any],
               transcript: str) -> int:
+    """Upsert by session_id.
+
+    A lead can be written twice for the same call: once immediately when the
+    caller confirms the on-screen contact card mid-call, and again from the
+    post-call pass that fills in company/problem/interest from the full
+    transcript. Without this being an upsert, that would create two rows per
+    confirmed lead. A field is only overwritten when the new value is
+    non-empty, so the second write fills in gaps rather than blanking out
+    what the first one already captured.
+    """
+    existing = _query("SELECT * FROM leads WHERE session_id = ?", (session_id,))
+    if existing:
+        row = dict(existing[0])
+        merged = {
+            key: (data.get(key) or row.get(key))
+            for key in ("name", "email", "phone", "company", "problem", "interest")
+        }
+        _exec(
+            "UPDATE leads SET name=?, email=?, phone=?, company=?, problem=?, "
+            "interest=?, qualified=?, transcript=? WHERE id=?",
+            (
+                merged["name"], merged["email"], merged["phone"],
+                merged["company"], merged["problem"], merged["interest"],
+                1 if (merged["email"] or merged["phone"]) else 0,
+                transcript or row.get("transcript"),
+                row["id"],
+            ),
+        )
+        return int(row["id"])
+
     cur = _exec(
         "INSERT INTO leads (session_id, visitor_id, name, email, phone, company, "
         "problem, interest, qualified, transcript, created_at) "

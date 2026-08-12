@@ -39,16 +39,22 @@ async def mint_token() -> str:
 
 
 def websocket_url(token: str) -> str:
-    """The URL the browser opens. Tuned for fast turn detection."""
+    """The URL the browser opens.
+
+    Originally tuned aggressively for low latency (0.4 / 400ms), which meant a
+    caller pausing mid-thought - "I'm thinking about... building a business" -
+    got cut off and answered as if they had finished. Wrong answers to
+    unfinished sentences are worse than an extra couple hundred milliseconds,
+    so this now favours waiting for a real pause over reacting to the first one.
+    """
     params = {
         "token": token,
         "sample_rate": config.AAI_SAMPLE_RATE,
         "encoding": "pcm_s16le",
         "speech_model": config.AAI_SPEECH_MODEL,
         "format_turns": "true",
-        # Lower threshold + shorter silence = the agent starts replying sooner.
-        "end_of_turn_confidence_threshold": "0.4",
-        "min_turn_silence": "400",
-        "max_turn_silence": "1100",
+        "end_of_turn_confidence_threshold": "0.7",
+        "min_turn_silence": "600",
+        "max_turn_silence": "1400",
     }
     return f"{config.AAI_WS_BASE}?{urlencode(params)}"

@@ -298,18 +298,28 @@ body {
 
 .transcript-box {
     width: 100%;
+    /* Fixed height, not min/max - text growing or shrinking as clauses
+       accumulate must never reflow anything below it. Long replies scroll
+       inside this box instead. */
+    height: 150px;
+    flex-shrink: 0;
     background: var(--glass);
     backdrop-filter: blur(10px);
     border-radius: 18px;
     padding: 20px;
-    min-height: 116px;
-    max-height: 190px;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
     margin-bottom: 32px;
     border: 1px solid var(--glass-border);
 }
 
 .transcript-text {
+    /* Auto margins center short text vertically; once content overflows the
+       fixed-height box they collapse to 0, so long replies stay scrollable
+       from the top instead of clipping at both edges. */
+    margin: auto 0;
+    width: 100%;
     font-size: 15px;
     line-height: 1.5;
     color: var(--text-main);
@@ -328,6 +338,112 @@ body {
 .transcript-text.interim {
     opacity: 0.55;
     font-style: italic;
+}
+
+/* Contact card: replaces the transcript box while collecting contact
+   details. Hidden by default; app.js toggles .visible. Voice fills the
+   inputs in as the caller speaks, but they are always plain editable text
+   inputs, since a voice-transcribed email needs a human to check it. */
+.contact-card {
+    display: none;
+    width: 100%;
+    height: 150px;
+    flex-shrink: 0;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--glass);
+    backdrop-filter: blur(10px);
+    border-radius: 18px;
+    padding: 14px 18px;
+    margin-bottom: 32px;
+    border: 1px solid var(--glass-border);
+    overflow-y: auto;
+}
+
+.contact-card.visible {
+    display: flex;
+}
+
+.contact-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
+
+.contact-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.contact-field span {
+    font-size: 11.5px;
+    color: var(--text-muted);
+}
+
+.contact-field span em {
+    font-style: normal;
+    opacity: 0.7;
+}
+
+.contact-field input {
+    font-family: inherit;
+    font-size: 14px;
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--glass-border);
+    border-radius: 9px;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.contact-field input:focus {
+    border-color: var(--accent);
+    background: rgba(255, 255, 255, 0.09);
+}
+
+.contact-field input.field-filled {
+    border-color: rgba(34, 197, 94, 0.5);
+}
+
+.contact-card-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 4px;
+}
+
+.btn-text,
+.btn-primary {
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 9px;
+    padding: 8px 16px;
+    cursor: pointer;
+    border: none;
+    transition: transform 0.1s ease, background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.btn-text {
+    background: transparent;
+    color: var(--text-muted);
+}
+.btn-text:hover { color: var(--text-main); }
+
+.btn-primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #fff;
+}
+.btn-primary:hover { transform: translateY(-1px); }
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
 }
 
 .call-controls {

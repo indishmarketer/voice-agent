@@ -37,6 +37,15 @@
   const transcriptEl = el("transcript-text");
   const timerEl = el("call-timer");
   const noticeEl = el("notice");
+  const transcriptBoxEl = document.querySelector(".transcript-box");
+  const contactCardEl = el("contact-card");
+  const contactInputs = {
+    name: el("contact-name"),
+    email: el("contact-email"),
+    phone: el("contact-phone"),
+  };
+  const btnContactConfirm = el("btn-contact-confirm");
+  const btnContactSkip = el("btn-contact-skip");
 
   const state = {
     active: false,
@@ -67,7 +76,22 @@
     visualizerHandle: null,
     endsAt: 0,
     finished: false,
+    // Text reveal: clauses arrive from the server well before their audio has
+    // actually been synthesized and played (Fish Audio's round trip happens
+    // after we already know the text). Instead of showing text the moment it
+    // arrives, we queue it and reveal it in step with real playback progress.
+    textQueue: [],
+    revealedText: "",
+    revealedChars: 0,
+    turnFirstStartAt: null,
   };
+
+  // Roughly how fast Fish Audio speaks, in characters per second - measured
+  // from real replies (18-23 chars/sec). Used only to pace the text reveal;
+  // being a little off just makes the sync slightly early or late, which is
+  // far better than showing the whole reply before any of it has been said.
+  const CHARS_PER_SEC = 19;
+  const REVEAL_SLACK_CHARS = 14;
 
   // --- UI helpers -----------------------------------------------------------
 
@@ -79,6 +103,38 @@
   function showTranscript(text, who) {
     transcriptEl.textContent = text;
     transcriptEl.className = "transcript-text " + (who || "");
+  }
+
+  function resetTextReveal() {
+    state.textQueue = [];
+    state.revealedText = "";
+    state.revealedChars = 0;
+    state.turnFirstStartAt = null;
+  }
+
+  function queueAgentText(text) {
+    if (text) state.textQueue.push(text);
+  }
+
+  // Called every animation frame while a call is active (piggybacks on the
+  // visualizer loop below, which already runs on that cadence). Reveals
+  // queued clauses as real playback time accumulates, so the transcript
+  // accumulates across a turn instead of being overwritten, and tracks the
+  // voice instead of running ahead of it.
+  function revealQueuedText() {
+    if (!state.textQueue.length || state.turnFirstStartAt === null) return;
+    const played = Math.max(0, state.playCtx.currentTime - state.turnFirstStartAt);
+    const budget = played * CHARS_PER_SEC + REVEAL_SLACK_CHARS;
+
+    let changed = false;
+    while (state.textQueue.length &&
+          state.revealedChars + state.textQueue[0].length <= budget) {
+      const next = state.textQueue.shift();
+      state.revealedText += (state.revealedText ? " " : "") + next;
+      state.revealedChars += next.length;
+      changed = true;
+    }
+    if (changed) showTranscript(state.revealedText, "agent");
   }
 
   function notify(message, isError) {
@@ -136,6 +192,7 @@
     const earliest = ctx.currentTime + JITTER_BUFFER;
     const startAt = Math.max(earliest, state.nextPlayTime);
     source.start(startAt);
+    if (state.turnFirstStartAt === null) state.turnFirstStartAt = startAt;
     state.nextPlayTime = startAt + buffer.duration;
     state.agentSpeaking = true;
 
@@ -181,6 +238,7 @@
   }
 
   function visualizerFrame() {
+    const now = performance.now();
     let source = null;
     if (state.agentSpeaking && state.playAnalyser) {
       state.playAnalyser.getByteFrequencyData(state.playFreqData);
@@ -191,9 +249,18 @@
     }
 
     for (let i = 0; i < BAR_COUNT; i++) {
-      const raw = source ? bandLevel(source, i, BAR_COUNT) : 0;
-      // sqrt gives a perceptual curve - quiet sounds are still visible.
-      const target = Math.sqrt(raw);
+      let target;
+      if (source) {
+        // sqrt gives a perceptual curve - quiet sounds are still visible.
+        target = Math.sqrt(bandLevel(source, i, BAR_COUNT));
+      } else if (state.active) {
+        // Low-amplitude idle breathing so the waveform reads as "listening",
+        // not frozen, between turns. Confined entirely to this 56px box -
+        // nothing else on the page moves from this.
+        target = 0.05 + 0.035 * Math.sin(now / 900 + i * 0.9);
+      } else {
+        target = 0;
+      }
       // Fast attack, slower release, so bars react instantly but don't flicker.
       const rate = target > barLevels[i] ? 0.55 : 0.14;
       barLevels[i] += (target - barLevels[i]) * rate;
@@ -201,11 +268,10 @@
     }
 
     const avg = barLevels.reduce((a, b) => a + b, 0) / BAR_COUNT;
-    // A very low idle baseline while a call is connected keeps the orb from
-    // looking dead between turns, without reading as "the whole UI moving".
-    const baseline = state.active ? 0.045 : 0;
-    orbLevel += (Math.max(avg, baseline) - orbLevel) * 0.18;
+    orbLevel += (avg - orbLevel) * 0.18;
     if (orbEl) orbEl.style.setProperty("--level", orbLevel.toFixed(3));
+
+    revealQueuedText();
 
     state.visualizerHandle = requestAnimationFrame(visualizerFrame);
   }
@@ -314,6 +380,7 @@
 
   function bargeIn() {
     stopPlayback();
+    resetTextReveal();
     send(state.agentSocket, { type: "barge_in" });
     setStatus("Listening…", "listening");
   }
@@ -406,17 +473,34 @@
   function onAgentMessage(data) {
     switch (data.type) {
       case "agent_start":
+        resetTextReveal();
         setStatus("Speaking…", "speaking");
         break;
       case "agent_text":
-        showTranscript(data.text, "agent");
+        queueAgentText(data.text);
         break;
       case "agent_done":
+        setStatus("Listening…", "listening");
+        break;
+      case "agent_cancelled":
+        resetTextReveal();
         setStatus("Listening…", "listening");
         break;
       case "status":
         if (data.state === "listening") setStatus("Listening…", "listening");
         if (data.state === "thinking") setStatus("Thinking…", "thinking");
+        break;
+      case "show_contact_form":
+        showContactCard(data);
+        break;
+      case "contact_fields":
+        fillContactCard(data);
+        break;
+      case "contact_saved":
+        hideContactCard();
+        break;
+      case "hide_contact_form":
+        hideContactCard();
         break;
       case "ended":
         state.finished = true;
@@ -428,6 +512,69 @@
         break;
     }
   }
+
+  // --- Contact card -------------------------------------------------------
+  //
+  // The agent asks for name/email/phone by voice; this card is where the
+  // caller reviews and fixes what was heard before it is saved. Voice fills
+  // the inputs in as extraction results arrive, but a field the caller has
+  // already started editing by hand is never overwritten from voice - typing
+  // always wins over a later voice update to the same field.
+  const contactTouched = { name: false, email: false, phone: false };
+
+  function showContactCard(fields) {
+    contactTouched.name = false;
+    contactTouched.email = false;
+    contactTouched.phone = false;
+    fillContactCard(fields || {});
+    transcriptBoxEl.style.display = "none";
+    contactCardEl.classList.add("visible");
+  }
+
+  function hideContactCard() {
+    contactCardEl.classList.remove("visible");
+    transcriptBoxEl.style.display = "";
+  }
+
+  function fillContactCard(fields) {
+    for (const key of ["name", "email", "phone"]) {
+      const value = fields[key];
+      const input = contactInputs[key];
+      if (value && !contactTouched[key] && document.activeElement !== input) {
+        input.value = value;
+        input.classList.add("field-filled");
+      }
+    }
+    updateConfirmEnabled();
+  }
+
+  function updateConfirmEnabled() {
+    const hasWay = contactInputs.email.value.trim() || contactInputs.phone.value.trim();
+    btnContactConfirm.disabled = !hasWay;
+  }
+
+  for (const key of ["name", "email", "phone"]) {
+    contactInputs[key].addEventListener("input", () => {
+      contactTouched[key] = true;
+      contactInputs[key].classList.remove("field-filled");
+      updateConfirmEnabled();
+    });
+  }
+
+  btnContactConfirm.addEventListener("click", () => {
+    send(state.agentSocket, {
+      type: "contact_confirmed",
+      name: contactInputs.name.value.trim(),
+      email: contactInputs.email.value.trim(),
+      phone: contactInputs.phone.value.trim(),
+    });
+    hideContactCard();
+  });
+
+  btnContactSkip.addEventListener("click", () => {
+    send(state.agentSocket, { type: "contact_skip" });
+    hideContactCard();
+  });
 
   function reportUsage() {
     send(state.agentSocket, {
@@ -522,11 +669,43 @@
 
   // --- Call lifecycle -------------------------------------------------------
 
+  // --- Owner bypass -------------------------------------------------------
+  //
+  // The token itself is never in this file - it only exists if the site
+  // owner visits their own page once with ?owner=<ADMIN_TOKEN> in the URL.
+  // From then on it's read from localStorage on this browser only, so
+  // testing the live site doesn't trip the same daily caps as the public.
+
+  const OWNER_KEY = "im_owner_token";
+
+  function bootstrapOwnerToken() {
+    const params = new URLSearchParams(location.search);
+    const fromUrl = params.get("owner");
+    if (fromUrl) {
+      localStorage.setItem(OWNER_KEY, fromUrl);
+      params.delete("owner");
+      const clean = location.pathname + (params.toString() ? "?" + params : "");
+      history.replaceState({}, "", clean);
+    }
+  }
+
+  function ownerToken() {
+    try { return localStorage.getItem(OWNER_KEY) || ""; } catch (_) { return ""; }
+  }
+
+  bootstrapOwnerToken();
+
   async function requestSession() {
-    const turnstileToken = await getTurnstileToken();
+    const owner = ownerToken();
+    // The server skips verification for a valid owner token, so there is no
+    // reason to also make the caller sit through a Turnstile round trip.
+    const turnstileToken = owner ? "" : await getTurnstileToken();
+    const headers = { "Content-Type": "application/json" };
+    if (owner) headers["X-Owner-Token"] = owner;
+
     const response = await fetch("/api/session/start", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ turnstile_token: turnstileToken }),
     });
     const data = await response.json().catch(() => ({}));
@@ -606,6 +785,14 @@
     state.streaming = false;
     state.muted = false;
     btnMute.classList.remove("muted");
+
+    hideContactCard();
+    for (const key of ["name", "email", "phone"]) {
+      contactInputs[key].value = "";
+      contactInputs[key].classList.remove("field-filled");
+      contactTouched[key] = false;
+    }
+    btnContactConfirm.disabled = true;
 
     callScreen.classList.remove("active");
     dialScreen.classList.add("active");

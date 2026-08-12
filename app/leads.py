@@ -17,7 +17,7 @@ _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
 
 
-def _transcript_text(turns: list[dict[str, Any]]) -> str:
+def transcript_text(turns: list[dict[str, Any]]) -> str:
     label = {"user": "Caller", "assistant": "Agent"}
     return "\n".join(
         f"{label.get(t['role'], t['role'])}: {t['content']}" for t in turns
@@ -43,14 +43,67 @@ def _spoken_email_fallback(text: str) -> Optional[str]:
     return match.group(0).lower().strip(".") if match else None
 
 
+def extract_phone(text: str) -> Optional[str]:
+    match = _PHONE.search(text)
+    return re.sub(r"[^\d+]", "", match.group(0)) if match else None
+
+
+async def extract_contact_reply(text: str) -> dict[str, Any]:
+    """Live, mid-call extraction of name/email/phone from the caller's answer
+    to the contact-collection question.
+
+    Scoped to just that one reply, not the whole transcript, and fast enough
+    to run while the caller is looking at the confirmation card waiting for
+    it to fill in. A regex safety net covers cases the LLM call misses or the
+    call itself fails - email and phone are the fields worth the redundancy,
+    since a garbled voice-transcribed email is exactly what this whole flow
+    exists to catch.
+    """
+    result: dict[str, Any] = {
+        "name": None, "email": None, "phone": None, "declined": False,
+    }
+    try:
+        raw = await llm.complete(
+            [
+                {"role": "system", "content": prompts.CONTACT_EXTRACTION_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            max_tokens=150,
+        )
+        parsed = llm.parse_json_object(raw)
+        for key in ("name", "email", "phone"):
+            val = parsed.get(key)
+            if isinstance(val, str) and val.strip() and val.strip().lower() != "null":
+                result[key] = val.strip()
+        result["declined"] = bool(parsed.get("declined"))
+    except Exception as exc:
+        log.warning("live contact extraction failed: %s", exc)
+
+    if not result["email"]:
+        result["email"] = _spoken_email_fallback(text)
+    if not result["phone"]:
+        result["phone"] = extract_phone(text)
+    return result
+
+
 async def process_session(session_id: str, visitor_id: str,
-                          turns: list[dict[str, Any]]) -> None:
-    """Summarise the call, pull out contact details, persist and sync."""
+                          turns: list[dict[str, Any]],
+                          confirmed_contact: Optional[dict[str, Any]] = None) -> None:
+    """Summarise the call, pull out contact details, persist and sync.
+
+    `confirmed_contact` is the name/email/phone the caller explicitly
+    confirmed on screen during the call, if they got that far. Those values
+    are ground truth - a human corrected them - so they always win over
+    whatever this post-call pass guesses from the full transcript. This pass
+    still runs for its own sake even when contact was confirmed live: it is
+    the only place company/problem/interest get filled in, and the call
+    summary feeds the visitor's cross-session memory either way.
+    """
     user_turns = [t for t in turns if t["role"] == "user"]
     if len(user_turns) < 1:
         return  # nothing was actually said
 
-    transcript = _transcript_text(turns)
+    transcript = transcript_text(turns)
 
     summary = ""
     try:
@@ -84,9 +137,11 @@ async def process_session(session_id: str, visitor_id: str,
     if not data.get("email"):
         data["email"] = _spoken_email_fallback(caller_said)
     if not data.get("phone"):
-        match = _PHONE.search(caller_said)
-        if match:
-            data["phone"] = re.sub(r"[^\d+]", "", match.group(0))
+        data["phone"] = extract_phone(caller_said)
+
+    if confirmed_contact:
+        data.update({k: v for k, v in confirmed_contact.items()
+                    if k in ("name", "email", "phone") and v})
 
     store.update_visitor_memory(
         visitor_id,

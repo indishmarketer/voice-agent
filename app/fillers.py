@@ -22,19 +22,27 @@ log = logging.getLogger("fillers")
 # Two tiers. An ACK goes out the instant the caller stops talking. If the model
 # is still thinking a second later, a BRIDGE follows it, which is what a real
 # receptionist does rather than going silent.
+#
+# Every phrase here must make sense after ANY kind of caller utterance - a
+# question, a statement, a trailing-off half-thought, or a turn the endpointer
+# cut early on a thinking pause. That rules out anything that presumes what was
+# just said, e.g. "good question" said back to a statement, or "let me check
+# that for you" said back to a caller who was just describing their business.
+# Neutral acknowledgement only - never a reaction to content we have not
+# actually processed yet.
 ACKS = [
-    "Sure.",
-    "Right.",
-    "Got it.",
     "Mm-hmm.",
-    "Of course.",
+    "Okay.",
+    "Right.",
+    "I see.",
+    "Got it.",
 ]
 
 BRIDGES = [
-    "Let me check that for you.",
     "One moment.",
-    "Let me see.",
-    "Yeah, good question.",
+    "Just a second.",
+    "Give me a moment to think about that.",
+    "Okay, one second.",
 ]
 
 PHRASES = ACKS + BRIDGES
