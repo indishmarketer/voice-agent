@@ -46,6 +46,55 @@
   };
   const btnContactConfirm = el("btn-contact-confirm");
   const btnContactSkip = el("btn-contact-skip");
+  const btnTheme = el("btn-theme");
+
+  // --- Theme -----------------------------------------------------------
+  //
+  // The inline script in <head> already applied any saved choice before
+  // first paint, so there is no flash to fix here - this just owns the
+  // toggle itself and keeps the icon in sync.
+
+  const SUN_ICON = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+    + '<circle cx="12" cy="12" r="4.5" fill="currentColor"/>'
+    + '<g stroke="currentColor" stroke-width="2" stroke-linecap="round">'
+    + '<path d="M12 2v2.5M12 19.5V22M4.22 4.22l1.77 1.77M18 18l1.78 1.78'
+    + 'M2 12h2.5M19.5 12H22M4.22 19.78L6 18M18 6l1.78-1.78"/></g></svg>';
+  const MOON_ICON = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+    + '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" fill="currentColor"/></svg>';
+
+  function systemPrefersLight() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+  }
+
+  function effectiveTheme() {
+    const manual = document.documentElement.getAttribute("data-theme");
+    if (manual === "light" || manual === "dark") return manual;
+    return systemPrefersLight() ? "light" : "dark";
+  }
+
+  function paintThemeIcon() {
+    if (!btnTheme) return;
+    // Button shows what you'd switch TO, not the current state.
+    btnTheme.innerHTML = effectiveTheme() === "light" ? MOON_ICON : SUN_ICON;
+  }
+
+  function setTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    try { localStorage.setItem("theme", theme); } catch (_) { /* private mode */ }
+    paintThemeIcon();
+  }
+
+  if (btnTheme) {
+    paintThemeIcon();
+    btnTheme.addEventListener("click", () => {
+      setTheme(effectiveTheme() === "light" ? "dark" : "light");
+    });
+    if (window.matchMedia) {
+      window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+        if (!document.documentElement.getAttribute("data-theme")) paintThemeIcon();
+      });
+    }
+  }
 
   const state = {
     active: false,

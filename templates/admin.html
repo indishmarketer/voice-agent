@@ -4,14 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ usage.day }} — Voice Agent Admin</title>
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='favicon.svg') }}">
+    <script>
+        // Applied before the stylesheet renders, so a saved preference never
+        // flashes the wrong theme for a frame.
+        try {
+            var __theme = localStorage.getItem("theme");
+            if (__theme === "light" || __theme === "dark") {
+                document.documentElement.setAttribute("data-theme", __theme);
+            }
+        } catch (_) {}
+    </script>
+    <link rel="icon" type="image/png" href="{{ url_for('static', path='img/favicon.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', path='img/apple-touch-icon.png') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         /* Ghost theme: chrome is grayscale only. Colour is reserved for
            status - success/warn/danger pills and the one CTA accent - never
-           for decoration. Matches the call app's design language. */
+           for decoration. Matches the call app's design language, and uses
+           the same theme-aware token structure: dark on bare :root, a light
+           override for "OS prefers light, no manual choice yet", and a
+           [data-theme] override for the manual toggle that always wins. */
         :root {
-            color-scheme: dark;
             --bg-dark: #060606;
             --bg-panel: #121212;
             --glass: rgba(255, 255, 255, 0.045);
@@ -24,13 +37,53 @@
             --cta: #5b8def;
             --text-main: #f3f4f6;
             --text-muted: #8a8a8f;
+            --fg-rgb: 255, 255, 255;
+            color-scheme: dark;
+        }
+        @media (prefers-color-scheme: light) {
+            :root:not([data-theme="dark"]) {
+                --bg-dark: #f2f2f4;
+                --bg-panel: #ffffff;
+                --glass: rgba(0, 0, 0, 0.035);
+                --glass-border: rgba(0, 0, 0, 0.10);
+                --mono-1: #1a1a1a;
+                --mono-3: #d8d8d8;
+                --text-main: #17181c;
+                --text-muted: #6b6b70;
+                --fg-rgb: 0, 0, 0;
+                color-scheme: light;
+            }
+        }
+        :root[data-theme="light"] {
+            --bg-dark: #f2f2f4;
+            --bg-panel: #ffffff;
+            --glass: rgba(0, 0, 0, 0.035);
+            --glass-border: rgba(0, 0, 0, 0.10);
+            --mono-1: #1a1a1a;
+            --mono-3: #d8d8d8;
+            --text-main: #17181c;
+            --text-muted: #6b6b70;
+            --fg-rgb: 0, 0, 0;
+            color-scheme: light;
+        }
+        :root[data-theme="dark"] {
+            --bg-dark: #060606;
+            --bg-panel: #121212;
+            --glass: rgba(255, 255, 255, 0.045);
+            --glass-border: rgba(255, 255, 255, 0.10);
+            --mono-1: #ffffff;
+            --mono-3: #3a3a3a;
+            --text-main: #f3f4f6;
+            --text-muted: #8a8a8f;
+            --fg-rgb: 255, 255, 255;
+            color-scheme: dark;
         }
         * { box-sizing: border-box; }
         body {
             margin: 0; padding: 40px 24px 80px;
             background:
-                radial-gradient(900px 500px at 12% -10%, rgba(255,255,255,.06), transparent 60%),
-                radial-gradient(700px 420px at 100% 0%, rgba(255,255,255,.04), transparent 55%),
+                radial-gradient(900px 500px at 12% -10%, rgba(var(--fg-rgb), .06), transparent 60%),
+                radial-gradient(700px 420px at 100% 0%, rgba(var(--fg-rgb), .04), transparent 55%),
                 var(--bg-dark);
             color: var(--text-main);
             font: 15px/1.55 'Inter', system-ui, -apple-system, sans-serif;
@@ -42,14 +95,28 @@
         .brandmark { display: flex; align-items: center; gap: 12px; }
         .brandmark .mark {
             width: 34px; height: 34px; border-radius: 10px;
+            overflow: hidden;
             background: linear-gradient(135deg, var(--mono-1), var(--mono-3));
             box-shadow: 0 4px 14px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.15);
         }
+        .brandmark .mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
         h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
         .sub { color: var(--text-muted); font-size: 13px; }
         .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
                     background: var(--success); margin-right: 6px;
                     box-shadow: 0 0 0 3px rgba(34,197,94,.18); }
+
+        .btn-theme-toggle {
+            width: 36px; height: 36px; border-radius: 50%;
+            border: 1px solid var(--glass-border);
+            background: var(--glass);
+            color: var(--text-main);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: background-color .15s ease, transform .15s ease;
+            flex-shrink: 0;
+        }
+        .btn-theme-toggle:hover { background: rgba(var(--fg-rgb), .1); transform: scale(1.06); }
+        .btn-theme-toggle svg { width: 17px; height: 17px; }
 
         h2 { font-size: 12.5px; text-transform: uppercase; letter-spacing: 1.2px;
              color: var(--text-muted); font-weight: 600; margin: 40px 0 14px;
@@ -119,40 +186,46 @@
         }
         button:hover, .btn:hover { background: #4a7de0; transform: translateY(-1px); }
         button.ghost {
-            background: rgba(255,255,255,.08); border: 1px solid var(--glass-border);
+            background: rgba(var(--fg-rgb), .08); border: 1px solid var(--glass-border); color: var(--text-main);
         }
-        button.ghost:hover { background: rgba(255,255,255,.14); }
+        button.ghost:hover { background: rgba(var(--fg-rgb), .14); }
         button.danger { background: var(--danger); }
         button.danger:hover { background: #dc2626; }
         button:disabled {
-            opacity: .4; cursor: not-allowed; transform: none; background: rgba(255,255,255,.08);
+            opacity: .4; cursor: not-allowed; transform: none; background: rgba(var(--fg-rgb), .08);
         }
         button.small { padding: 6px 12px; font-size: 12px; }
 
-        code { background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 6px; font-size: 12px; }
+        code { background: rgba(var(--fg-rgb), .07); padding: 2px 7px; border-radius: 6px; font-size: 12px; }
         .empty { color: var(--text-muted); padding: 20px 14px; }
         .status-msg { font-size: 13px; color: var(--success); }
         .status-msg.err { color: var(--danger); }
 
         .owner-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .owner-row input { flex: 1; min-width: 220px; font-family: inherit; font-size: 12.5px;
-             background: rgba(255,255,255,.06); border: 1px solid var(--glass-border);
+             background: rgba(var(--fg-rgb), .06); border: 1px solid var(--glass-border);
              color: var(--text-muted); border-radius: 8px; padding: 8px 10px; }
 
         .leads-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
         ::-webkit-scrollbar { height: 6px; width: 6px; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: rgba(var(--fg-rgb), .18); border-radius: 4px; }
     </style>
 </head>
 <body>
 <div class="wrap">
     <div class="topbar">
         <div class="brandmark">
-            <div class="mark"></div>
+            <div class="mark">
+                <img src="{{ url_for('static', path='img/logo.png') }}" alt="Logo">
+            </div>
             <h1>Voice Agent</h1>
         </div>
-        <div class="sub"><span class="live-dot"></span>{{ active }} call(s) in progress · {{ usage.day }} UTC</div>
+        <div class="sub">
+            <span class="live-dot"></span>{{ active }} call(s) in progress · {{ usage.day }} UTC
+            <button id="btn-theme" class="btn-theme-toggle" aria-label="Toggle light and dark theme"
+                    type="button" style="margin-left:10px;vertical-align:middle"></button>
+        </div>
     </div>
 
     <h2>Usage</h2>
@@ -281,6 +354,45 @@ const TOKEN = {{ token | tojson }};
 const withToken = (path) => path + "?token=" + encodeURIComponent(TOKEN);
 const kbOut = document.getElementById("kb-out");
 
+// --- Theme -------------------------------------------------------------
+
+const SUN_ICON = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+    + '<circle cx="12" cy="12" r="4.5" fill="currentColor"/>'
+    + '<g stroke="currentColor" stroke-width="2" stroke-linecap="round">'
+    + '<path d="M12 2v2.5M12 19.5V22M4.22 4.22l1.77 1.77M18 18l1.78 1.78'
+    + 'M2 12h2.5M19.5 12H22M4.22 19.78L6 18M18 6l1.78-1.78"/></g></svg>';
+const MOON_ICON = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+    + '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" fill="currentColor"/></svg>';
+
+function systemPrefersLight() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+}
+function effectiveTheme() {
+    const manual = document.documentElement.getAttribute("data-theme");
+    if (manual === "light" || manual === "dark") return manual;
+    return systemPrefersLight() ? "light" : "dark";
+}
+const btnTheme = document.getElementById("btn-theme");
+function paintThemeIcon() {
+    btnTheme.innerHTML = effectiveTheme() === "light" ? MOON_ICON : SUN_ICON;
+}
+function setTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    try { localStorage.setItem("theme", theme); } catch (_) {}
+    paintThemeIcon();
+}
+paintThemeIcon();
+btnTheme.addEventListener("click", () => {
+    setTheme(effectiveTheme() === "light" ? "dark" : "light");
+});
+if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+        if (!document.documentElement.getAttribute("data-theme")) paintThemeIcon();
+    });
+}
+
+// --- Knowledge base uploads ---------------------------------------------
+
 async function uploadKnowledge(form, target) {
     const body = new FormData(form);
     if (target) body.append("target", target);
@@ -332,7 +444,7 @@ document.getElementById("copy-link").addEventListener("click", async () => {
     setTimeout(() => { out.textContent = ""; }, 2000);
 });
 
-// --- Lead selection and deletion -------------------------------------------
+// --- Lead selection and deletion -----------------------------------------
 
 const selectAll = document.getElementById("select-all");
 const checks = () => [...document.querySelectorAll(".lead-check")];

@@ -3,7 +3,14 @@
    for things that mean something: the dial button, the end-call button, and
    the live audio visuals (orb glow, waveform) that show call state. Anything
    colourful on this page should be answering "what is happening right now",
-   never just decoration. */
+   never just decoration.
+
+   Theme-aware: dark is the default look, defined on bare :root. A light
+   palette is layered on in two places that must stay in sync - a media
+   query for "no manual choice yet, but the OS prefers light" and a
+   [data-theme] override for the manual toggle, which always wins in either
+   direction regardless of OS preference. btn-theme-toggle in app.js is what
+   sets data-theme. */
 :root {
     --bg-dark: #060606;
     --bg-panel: #121212;
@@ -25,6 +32,51 @@
 
     --text-main: #f3f4f6;
     --text-muted: #8a8a8f;
+
+    /* One RGB triple (not a full colour) so rgba(var(--fg-rgb), alpha) can
+       build every translucent "tint of foreground on background" surface -
+       ambient blobs, scrollbar thumb, input fills, hover states. White in
+       dark mode, near-black in light mode; everything using it inverts
+       automatically with no separate token needed per surface. */
+    --fg-rgb: 255, 255, 255;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        --bg-dark: #f2f2f4;
+        --bg-panel: #ffffff;
+        --glass: rgba(0, 0, 0, 0.035);
+        --glass-border: rgba(0, 0, 0, 0.10);
+        --mono-1: #1a1a1a;
+        --mono-3: #d8d8d8;
+        --text-main: #17181c;
+        --text-muted: #6b6b70;
+        --fg-rgb: 0, 0, 0;
+    }
+}
+
+:root[data-theme="light"] {
+    --bg-dark: #f2f2f4;
+    --bg-panel: #ffffff;
+    --glass: rgba(0, 0, 0, 0.035);
+    --glass-border: rgba(0, 0, 0, 0.10);
+    --mono-1: #1a1a1a;
+    --mono-3: #d8d8d8;
+    --text-main: #17181c;
+    --text-muted: #6b6b70;
+    --fg-rgb: 0, 0, 0;
+}
+
+:root[data-theme="dark"] {
+    --bg-dark: #060606;
+    --bg-panel: #121212;
+    --glass: rgba(255, 255, 255, 0.045);
+    --glass-border: rgba(255, 255, 255, 0.10);
+    --mono-1: #ffffff;
+    --mono-3: #3a3a3a;
+    --text-main: #f3f4f6;
+    --text-muted: #8a8a8f;
+    --fg-rgb: 255, 255, 255;
 }
 
 * {
@@ -74,7 +126,7 @@ body {
     height: 480px;
     left: -160px;
     top: -120px;
-    background: radial-gradient(circle, rgba(255, 255, 255, 0.5), transparent 70%);
+    background: radial-gradient(circle, rgba(var(--fg-rgb), 0.5), transparent 70%);
     animation: driftA 26s ease-in-out infinite;
 }
 
@@ -83,7 +135,7 @@ body {
     height: 420px;
     right: -140px;
     bottom: -100px;
-    background: radial-gradient(circle, rgba(255, 255, 255, 0.32), transparent 70%);
+    background: radial-gradient(circle, rgba(var(--fg-rgb), 0.32), transparent 70%);
     animation: driftB 32s ease-in-out infinite;
 }
 
@@ -92,7 +144,7 @@ body {
     height: 320px;
     left: 45%;
     top: 55%;
-    background: radial-gradient(circle, rgba(255, 255, 255, 0.22), transparent 70%);
+    background: radial-gradient(circle, rgba(var(--fg-rgb), 0.22), transparent 70%);
     animation: driftC 38s ease-in-out infinite;
 }
 
@@ -166,12 +218,18 @@ body {
     height: 64px;
     margin: 0 auto 20px;
     border-radius: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 26px;
+    overflow: hidden;
+    /* Fallback fill while the image loads - normally invisible since the
+       image covers the container exactly. */
     background: linear-gradient(135deg, var(--mono-1), var(--mono-3));
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.brand .logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
 }
 
 .brand h1 {
@@ -179,7 +237,7 @@ body {
     font-size: 25px;
     letter-spacing: -0.02em;
     margin-bottom: 8px;
-    background: linear-gradient(135deg, #ffffff, #a8a8a8);
+    background: linear-gradient(135deg, var(--text-main), var(--text-muted));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -260,15 +318,22 @@ body {
 .agent-orb .core {
     width: 78px;
     height: 78px;
-    border-radius: 50%;
+    /* Rounded square, not a circle - a full circle crop would cut off most
+       of a square logo. The ring glow behind it stays circular; a square
+       icon with a soft round glow is a common, deliberate pairing. */
+    border-radius: 24px;
+    overflow: hidden;
     background: linear-gradient(150deg, var(--mono-1), var(--mono-3));
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 26px;
     box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
     transform: scale(calc(1 + var(--level, 0) * 0.14));
     transition: transform 0.05s linear;
+}
+
+.agent-orb .core img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
 }
 
 .call-header h2 {
@@ -410,7 +475,7 @@ body {
     font-family: inherit;
     font-size: 14px;
     color: var(--text-main);
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(var(--fg-rgb), 0.06);
     border: 1px solid var(--glass-border);
     border-radius: 9px;
     padding: 8px 10px;
@@ -420,7 +485,7 @@ body {
 
 .contact-field input:focus {
     border-color: var(--cta);
-    background: rgba(255, 255, 255, 0.09);
+    background: rgba(var(--fg-rgb), 0.09);
 }
 
 .contact-field input.field-filled {
@@ -510,17 +575,45 @@ body {
 
 /* Mute control */
 .btn-mute {
-    background-color: rgba(255, 255, 255, 0.07);
+    background-color: rgba(var(--fg-rgb), 0.07);
     border: 1px solid var(--glass-border);
     width: 54px;
     height: 54px;
     color: var(--text-main);
 }
-.btn-mute:hover { background-color: rgba(255, 255, 255, 0.13); }
+.btn-mute:hover { background-color: rgba(var(--fg-rgb), 0.13); }
 .btn-mute.muted {
     background-color: var(--danger);
     border-color: var(--danger);
 }
+
+/* Theme toggle: fixed at the viewport level (not inside .app-container,
+   which clips its own contents on wider screens) so it stays reachable on
+   both the compact mobile layout and the centered desktop card. Icon content
+   is swapped by app.js. */
+.btn-theme-toggle {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--glass-border);
+    background: var(--glass);
+    backdrop-filter: blur(10px);
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.15s ease, transform 0.15s ease;
+}
+.btn-theme-toggle:hover {
+    background: rgba(var(--fg-rgb), 0.1);
+    transform: scale(1.08);
+}
+.btn-theme-toggle svg { width: 18px; height: 18px; }
 
 /* Notices: quota messages, connection errors */
 .notice {
@@ -580,4 +673,4 @@ body {
 /* Custom Scrollbar */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(var(--fg-rgb), 0.2); border-radius: 4px; }

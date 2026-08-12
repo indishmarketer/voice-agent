@@ -4,7 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ brand }} — Voice Assistant</title>
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='favicon.svg') }}">
+    <script>
+        // Applied before the stylesheet loads, so a saved preference never
+        // flashes the wrong theme for a frame. app.js owns the toggle itself.
+        try {
+            var __theme = localStorage.getItem("theme");
+            if (__theme === "light" || __theme === "dark") {
+                document.documentElement.setAttribute("data-theme", __theme);
+            }
+        } catch (_) {}
+    </script>
+    <link rel="icon" type="image/png" href="{{ url_for('static', path='img/favicon.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', path='img/apple-touch-icon.png') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
     {% if turnstile_site_key %}
@@ -24,12 +35,16 @@
 <body>
     <div class="bg-orbs" aria-hidden="true"><span></span><span></span><span></span></div>
 
+    <button id="btn-theme" class="btn-theme-toggle" aria-label="Toggle light and dark theme" type="button"></button>
+
     <div class="app-container">
 
         <!-- Welcome / Dial Screen -->
         <div id="dial-screen" class="screen active">
             <div class="brand">
-                <div class="logo">✨</div>
+                <div class="logo">
+                    <img src="{{ url_for('static', path='img/logo.png') }}" alt="{{ brand }}">
+                </div>
                 <h1>{{ brand }}</h1>
                 <p>Intelligent Voice Assistant</p>
             </div>
@@ -52,7 +67,9 @@
             <div class="call-header">
                 <div class="agent-orb" id="agent-orb" aria-hidden="true">
                     <div class="ring"></div>
-                    <div class="core">✨</div>
+                    <div class="core">
+                        <img src="{{ url_for('static', path='img/logo.png') }}" alt="">
+                    </div>
                 </div>
                 <h2>{{ agent_name }}</h2>
                 <div id="call-status" class="call-status">Connecting…</div>
