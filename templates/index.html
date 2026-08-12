@@ -91,30 +91,34 @@
                 <div id="transcript-text" class="transcript-text">Calling…</div>
             </div>
 
-            <!-- Shown instead of the transcript box while the agent is
-                 collecting contact details. Voice fills these fields in as
-                 the caller speaks; the caller can also just type directly,
-                 since voice transcription of an email is not reliable. -->
+            <!-- The agent collects name/email/phone by voice, one at a time,
+                 in the transcript box above like any other turn. This card
+                 only ever appears as a fallback - the caller said the spoken
+                 read-back was wrong, or voice capture couldn't get a clean
+                 answer - so it is an overlay, not squeezed into a fixed-size
+                 box in the normal call layout. -->
             <div id="contact-card" class="contact-card">
-                <div class="contact-card-title">Your details</div>
-                <label class="contact-field">
-                    <span>Name</span>
-                    <input id="contact-name" type="text" autocomplete="name"
-                           placeholder="Your name">
-                </label>
-                <label class="contact-field">
-                    <span>Email</span>
-                    <input id="contact-email" type="email" autocomplete="email"
-                           placeholder="you@example.com">
-                </label>
-                <label class="contact-field">
-                    <span>Phone <em>(optional)</em></span>
-                    <input id="contact-phone" type="tel" autocomplete="tel"
-                           placeholder="Phone number">
-                </label>
-                <div class="contact-card-actions">
-                    <button id="btn-contact-skip" class="btn-text" type="button">Not now</button>
-                    <button id="btn-contact-confirm" class="btn-primary" type="button" disabled>Confirm</button>
+                <div class="contact-card-inner">
+                    <div class="contact-card-title">Your details</div>
+                    <label class="contact-field">
+                        <span>Name</span>
+                        <input id="contact-name" type="text" autocomplete="name"
+                               placeholder="Your name">
+                    </label>
+                    <label class="contact-field">
+                        <span>Email</span>
+                        <input id="contact-email" type="email" autocomplete="email"
+                               placeholder="you@example.com">
+                    </label>
+                    <label class="contact-field">
+                        <span>Phone <em>(optional)</em></span>
+                        <input id="contact-phone" type="tel" autocomplete="tel"
+                               placeholder="Phone number">
+                    </label>
+                    <div class="contact-card-actions">
+                        <button id="btn-contact-skip" class="btn-text" type="button">Not now</button>
+                        <button id="btn-contact-confirm" class="btn-primary" type="button" disabled>Confirm</button>
+                    </div>
                 </div>
             </div>
 

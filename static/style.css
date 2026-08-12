@@ -435,28 +435,43 @@ body {
     font-style: italic;
 }
 
-/* Contact card: replaces the transcript box while collecting contact
-   details. Hidden by default; app.js toggles .visible. Voice fills the
-   inputs in as the caller speaks, but they are always plain editable text
-   inputs, since a voice-transcribed email needs a human to check it. */
+/* Contact card: a correction fallback, not the primary way contact details
+   get collected (that happens by voice, one question at a time, in the
+   ordinary transcript box - see _handle_contact_field_reply in main.py).
+   This only appears if that spoken flow needs a hand-off, so it is a
+   full-screen overlay rather than a box squeezed into the fixed-height
+   transcript area - a 3-field form plus buttons never fit in that box's
+   150px, which is why it used to look like it "wasn't showing" at all.
+   Hidden by default; app.js toggles .visible. */
 .contact-card {
     display: none;
-    width: 100%;
-    height: 150px;
-    flex-shrink: 0;
-    flex-direction: column;
-    gap: 8px;
-    background: var(--glass);
-    backdrop-filter: blur(10px);
-    border-radius: 18px;
-    padding: 14px 18px;
-    margin-bottom: 32px;
-    border: 1px solid var(--glass-border);
-    overflow-y: auto;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.55);
 }
 
 .contact-card.visible {
     display: flex;
+}
+
+.contact-card-inner {
+    width: 100%;
+    max-width: 360px;
+    max-height: 82vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--bg-panel);
+    backdrop-filter: blur(10px);
+    border-radius: 18px;
+    padding: 20px 22px;
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
 }
 
 .contact-card-title {

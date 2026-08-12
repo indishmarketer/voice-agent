@@ -26,7 +26,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import branding, config, fillers, leads, llm, mailer, prompts, security, stt, store, tts
+from . import ai_models, branding, config, fillers, leads, llm, mailer, prompts, security, stt, store, tts
 from .knowledge import KB
 
 logging.basicConfig(
@@ -232,18 +232,24 @@ class Call:
         self.audio_started = asyncio.Event()
         self.visitor = store.touch_visitor(visitor_id)
 
-        # Lead capture: the LLM asks for contact details in its own words and
-        # signals it with a marker (see prompts.CONTACT_MARKER); the backend
-        # then takes over collecting and confirming them on screen rather than
-        # trusting voice transcription of an email address.
+        # Lead capture: the LLM decides it is time and signals it with a
+        # marker (see prompts.CONTACT_MARKER); the backend then takes over,
+        # asking for name, email and phone one at a time in plain speech -
+        # not a form, so there is no fixed-size box to squeeze a multi-field
+        # layout into. The visual form only ever appears afterwards, and only
+        # if the caller says the spoken-back summary is wrong.
         self.awaiting_contact = False
+        # "name" | "email" | "phone" | "confirm" | None - which question the
+        # caller's next reply answers.
+        self.contact_step: Optional[str] = None
+        self.contact_step_attempts = 0
+        self.contact_phone_asked = False
         self.contact_fields: dict[str, Optional[str]] = {
             "name": None, "email": None, "phone": None,
         }
-        self.contact_nudged = False
         # Once True, the marker is ignored for the rest of the call - covers
         # confirm, skip, and decline, so the model asking again cannot reopen
-        # the form after the caller has already answered.
+        # collection after the caller has already answered.
         self.contact_flow_done = False
         # What the caller explicitly confirmed on screen, if they got that
         # far. Passed to the post-call pass, which must never overwrite it.
@@ -553,9 +559,7 @@ async def _respond_with_llm(call: Call, text: str) -> None:
         store.add_turn(call.session_id, call.visitor_id, "assistant", spoken)
 
     if marker_flag["seen"] and not call.contact_flow_done:
-        call.awaiting_contact = True
-        call.contact_nudged = False
-        await call.send_json({"type": "show_contact_form", **call.contact_fields})
+        await _begin_contact_flow(call)
     elif marker_flag["seen"] and call.contact_flow_done:
         # The model tried to re-open contact capture despite the instruction
         # above and despite already being told not to in the fixed prefix.
@@ -594,14 +598,124 @@ async def _strip_contact_marker(clauses: AsyncIterator[str],
         yield clause
 
 
+CONTACT_FIELD_PROMPTS = {
+    "name": "Sure, could I get your name?",
+    "email": "And what's the best email to reach you?",
+    "phone": "And a phone number, if you're happy to share one? You can also just say skip.",
+}
+CONTACT_FIELD_ORDER = ("name", "email", "phone")
+
+
+async def _say_contact_line(call: Call, text: str) -> None:
+    """A fixed backend-spoken line during contact capture - not an LLM reply,
+    so it is exact, never wanders, and never re-emits the marker."""
+    call.history.append({"role": "assistant", "content": text})
+    store.add_turn(call.session_id, call.visitor_id, "assistant", text)
+    await _speak(call, _once(text), announce=text)
+
+
+async def _begin_contact_flow(call: Call) -> None:
+    """Entered once, right after the model decides it is time to collect
+    contact details. Everything from here on is asked one field at a time in
+    plain speech, in the same transcript area as the rest of the call - not a
+    form, so there is no multi-field layout to fit into a fixed-size box."""
+    call.awaiting_contact = True
+    await _advance_contact_flow(call)
+
+
+async def _advance_contact_flow(call: Call) -> None:
+    """Ask whichever of name/email/phone is still missing, in order, or move
+    to reading the details back once name and email are in (phone stays
+    optional, but is still asked for once before moving on)."""
+    for field in ("name", "email"):
+        if not call.contact_fields.get(field):
+            await _ask_contact_field(call, field)
+            return
+    if not call.contact_fields.get("phone") and not call.contact_phone_asked:
+        await _ask_contact_field(call, "phone")
+        return
+    await _ask_contact_confirmation(call)
+
+
+async def _ask_contact_field(call: Call, field: str) -> None:
+    call.contact_step = field
+    if field == "phone":
+        call.contact_phone_asked = True
+    await _say_contact_line(call, CONTACT_FIELD_PROMPTS[field])
+
+
+def _contact_summary(call: Call) -> str:
+    parts = []
+    for field, label in (("name", "name"), ("email", "email"), ("phone", "phone")):
+        if call.contact_fields.get(field):
+            parts.append(f"{label} as {call.contact_fields[field]}")
+    if len(parts) <= 1:
+        return parts[0] if parts else ""
+    return ", ".join(parts[:-1]) + ", and " + parts[-1]
+
+
+async def _ask_contact_confirmation(call: Call) -> None:
+    call.contact_step = "confirm"
+    text = f"Let me read that back - I have your {_contact_summary(call)}. Is that all correct?"
+    await _say_contact_line(call, text)
+
+
+async def _show_contact_form(call: Call) -> None:
+    """Falls back to the visual editable form - only reached if the spoken
+    flow could not get a clean answer, or the caller said the read-back
+    summary was wrong. Pre-filled with whatever was already collected."""
+    call.contact_step = None
+    await call.send_json({"type": "show_contact_form", **call.contact_fields})
+
+
+async def _finalise_contact(call: Call) -> None:
+    call.contact_confirmed_data = dict(call.contact_fields)
+    call.awaiting_contact = False
+    call.contact_flow_done = True
+    call.contact_step = None
+
+    transcript = leads.transcript_text(call.history)
+    lead_id = store.save_lead(
+        call.session_id, call.visitor_id, call.contact_fields, transcript
+    )
+    store.update_visitor_memory(
+        call.visitor_id, name=call.contact_fields.get("name"),
+        email=call.contact_fields.get("email"), phone=call.contact_fields.get("phone"),
+    )
+    log.info("lead %s confirmed live for session %s", lead_id, call.session_id[:8])
+
+    await call.send_json({"type": "contact_saved"})
+    await _say_contact_line(
+        call,
+        "Thank you, that is saved. Our team will reach out soon. Is there "
+        "anything else I can help with?",
+    )
+
+
 async def _handle_contact_reply(call: Call, text: str) -> None:
-    """The caller's spoken answer to 'could I get your name, email, phone'."""
+    """Routes the caller's next turn to whichever step of contact capture is
+    currently active - a single field, or the final yes/no confirmation."""
+    if call.contact_step == "confirm":
+        await _handle_contact_confirmation_reply(call, text)
+    else:
+        await _handle_contact_field_reply(call, text)
+
+
+async def _handle_contact_field_reply(call: Call, text: str) -> None:
+    field = call.contact_step
     data = await leads.extract_contact_reply(text)
 
     if data.get("declined"):
+        if field == "phone":
+            # Only phone is optional enough to just skip past on a decline;
+            # declining name or email ends the whole flow, as before.
+            call.contact_phone_asked = True
+            call.contact_step_attempts = 0
+            await _advance_contact_flow(call)
+            return
         call.awaiting_contact = False
         call.contact_flow_done = True
-        await call.send_json({"type": "hide_contact_form"})
+        call.contact_step = None
         await _respond_with_llm(call, text)
         return
 
@@ -610,56 +724,63 @@ async def _handle_contact_reply(call: Call, text: str) -> None:
         if data.get(key):
             call.contact_fields[key] = data[key]
             changed = True
-
     if changed:
         await call.send_json({"type": "contact_fields", **call.contact_fields})
 
-    if not call.contact_nudged:
-        call.contact_nudged = True
-        nudge = (
-            "Great, please check the details on screen and confirm."
-            if changed else
-            "Sorry, I did not quite catch that - you can also just type your "
-            "name, email and phone number on screen."
-        )
-        call.history.append({"role": "assistant", "content": nudge})
-        store.add_turn(call.session_id, call.visitor_id, "assistant", nudge)
-        await _speak(call, _once(nudge), announce=nudge)
-    else:
-        await call.send_json({"type": "status", "state": "listening"})
+    if not call.contact_fields.get(field) and field != "phone":
+        # Didn't catch it - ask the same question again, once. A second miss
+        # hands off to the visual form so the caller can just type it rather
+        # than get stuck repeating themselves to a machine.
+        if call.contact_step_attempts >= 1:
+            await _show_contact_form(call)
+            return
+        call.contact_step_attempts += 1
+        await _ask_contact_field(call, field)
+        return
+
+    call.contact_step_attempts = 0
+    await _advance_contact_flow(call)
+
+
+async def _handle_contact_confirmation_reply(call: Call, text: str) -> None:
+    data = await leads.extract_confirmation_reply(text)
+
+    corrected = False
+    for key in ("name", "email", "phone"):
+        if data.get(key):
+            call.contact_fields[key] = data[key]
+            corrected = True
+    if corrected:
+        await call.send_json({"type": "contact_fields", **call.contact_fields})
+
+    if data.get("confirmed"):
+        await _finalise_contact(call)
+        return
+
+    if corrected:
+        # They corrected something inline rather than just saying yes/no -
+        # read the updated version back rather than assuming that means done.
+        await _ask_contact_confirmation(call)
+        return
+
+    # Said no, or gave nothing usable - hand off to the visual form.
+    await _show_contact_form(call)
 
 
 async def _handle_contact_confirmed(call: Call, message: dict[str, Any]) -> None:
-    """The caller edited/reviewed the card and clicked Confirm."""
+    """The caller edited/reviewed the fallback form and clicked Confirm."""
     name = (message.get("name") or "").strip()[:120] or None
     email = (message.get("email") or "").strip().lower()[:200] or None
     phone = (message.get("phone") or "").strip()[:40] or None
-
     call.contact_fields = {"name": name, "email": email, "phone": phone}
-    call.contact_confirmed_data = dict(call.contact_fields)
-    call.awaiting_contact = False
-    call.contact_flow_done = True
-
-    transcript = leads.transcript_text(call.history)
-    lead_id = store.save_lead(
-        call.session_id, call.visitor_id, call.contact_fields, transcript
-    )
-    store.update_visitor_memory(call.visitor_id, name=name, email=email, phone=phone)
-    log.info("lead %s confirmed live for session %s", lead_id, call.session_id[:8])
-
-    await call.send_json({"type": "contact_saved"})
-
-    thanks = ("Thank you, that is saved. Our team will reach out soon. Is there "
-             "anything else I can help with?")
-    call.history.append({"role": "assistant", "content": thanks})
-    store.add_turn(call.session_id, call.visitor_id, "assistant", thanks)
-    await _speak(call, _once(thanks), announce=thanks)
+    await _finalise_contact(call)
 
 
 async def _handle_contact_skip(call: Call) -> None:
-    """The caller clicked 'not now' instead of confirming."""
+    """The caller clicked 'not now' on the fallback form."""
     call.awaiting_contact = False
     call.contact_flow_done = True
+    call.contact_step = None
     await call.send_json({"type": "hide_contact_form"})
 
     text = "No thanks, not right now."
@@ -785,7 +906,11 @@ def _admin_base_context(request: Request, active_page: str) -> dict[str, Any]:
         "request": request,
         "active_page": active_page,
         "token": token,
-        "owner_link": f"{request.url.scheme}://{request.url.netloc}/?owner={token}",
+        # The actual master key, not whatever happens to be in this page's
+        # URL - a magic-link login never has ?token= in the address bar, so
+        # reading it from query params left this blank for anyone who logged
+        # in that way.
+        "owner_link": f"{request.url.scheme}://{request.url.netloc}/?owner={config.ADMIN_TOKEN}",
         "owner_email": email,
         "owner_initial": email[0].upper() if email else None,
     }
@@ -914,6 +1039,7 @@ async def admin_settings_page(request: Request,
         "agent_rules": prompts.active_behavior_rules(),
         "default_rules": prompts._default_behavior_rules(),
         "branding": branding.get_branding(),
+        "models": ai_models.get_models(),
     })
     return templates.TemplateResponse("admin_settings.html", ctx)
 
@@ -983,6 +1109,41 @@ async def save_branding(request: Request,
 
     log.info("admin updated branding")
     return JSONResponse({"ok": True, "branding": branding.get_branding()})
+
+
+MODEL_SETTINGS_FIELDS = {
+    "pollinations_model": ai_models.SETTINGS_KEY_POLLINATIONS_MODEL,
+    "fish_model": ai_models.SETTINGS_KEY_FISH_MODEL,
+    "aai_speech_model": ai_models.SETTINGS_KEY_AAI_SPEECH_MODEL,
+}
+
+
+@app.post("/admin/settings/models")
+async def save_model_settings(request: Request,
+                              _: None = Depends(_require_admin)) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+
+    updates: dict[str, str] = {}
+    for field_name, settings_key in MODEL_SETTINGS_FIELDS.items():
+        value = body.get(field_name)
+        if value is None or not isinstance(value, str):
+            continue
+        value = value.strip()
+        if len(value) > 200:
+            return JSONResponse(
+                {"error": f"{field_name} is too long - keep it under 200 characters."},
+                status_code=400,
+            )
+        if value:
+            updates[settings_key] = value
+
+    for settings_key, value in updates.items():
+        store.set_setting(settings_key, value)
+
+    log.info("admin updated AI model settings: %s", ", ".join(updates))
+    return JSONResponse({"ok": True, "models": ai_models.get_models()})
 
 
 @app.post("/admin/knowledge")

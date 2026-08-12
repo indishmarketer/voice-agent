@@ -37,7 +37,6 @@
   const transcriptEl = el("transcript-text");
   const timerEl = el("call-timer");
   const noticeEl = el("notice");
-  const transcriptBoxEl = document.querySelector(".transcript-box");
   const contactCardEl = el("contact-card");
   const contactInputs = {
     name: el("contact-name"),
@@ -591,13 +590,11 @@
     contactTouched.email = false;
     contactTouched.phone = false;
     fillContactCard(fields || {});
-    transcriptBoxEl.style.display = "none";
     contactCardEl.classList.add("visible");
   }
 
   function hideContactCard() {
     contactCardEl.classList.remove("visible");
-    transcriptBoxEl.style.display = "";
   }
 
   function fillContactCard(fields) {

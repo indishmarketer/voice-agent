@@ -13,7 +13,7 @@ from typing import AsyncIterator, Awaitable, Callable, Optional
 import ormsgpack
 import websockets
 
-from . import config
+from . import ai_models, config
 
 log = logging.getLogger("tts")
 
@@ -30,7 +30,7 @@ class FishStream:
     async def open(self, attempts: int = 2) -> None:
         headers = {
             "Authorization": f"Bearer {config.FISH_API_KEY}",
-            "model": config.FISH_MODEL,
+            "model": ai_models.fish_model(),
         }
         last: Optional[Exception] = None
         for attempt in range(attempts):

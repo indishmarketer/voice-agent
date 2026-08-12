@@ -86,6 +86,42 @@ async def extract_contact_reply(text: str) -> dict[str, Any]:
     return result
 
 
+async def extract_confirmation_reply(text: str) -> dict[str, Any]:
+    """Live extraction for the caller's reply to "is that correct?" after the
+    backend reads their collected name/email/phone back to them. Separate
+    from extract_contact_reply above because a plain "yes" here means
+    something specific (confirmed=True), not just "no new field mentioned"."""
+    result: dict[str, Any] = {
+        "confirmed": False, "name": None, "email": None, "phone": None,
+    }
+    try:
+        raw = await llm.complete(
+            [
+                {"role": "system", "content": prompts.CONFIRMATION_EXTRACTION_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            max_tokens=150,
+        )
+        parsed = llm.parse_json_object(raw)
+        result["confirmed"] = bool(parsed.get("confirmed"))
+        for key in ("name", "email", "phone"):
+            val = parsed.get(key)
+            if isinstance(val, str) and val.strip() and val.strip().lower() != "null":
+                result[key] = val.strip()
+    except Exception as exc:
+        log.warning("confirmation extraction failed: %s", exc)
+        # Fail safe on a plain yes, so a transient LLM error cannot strand a
+        # caller who clearly agreed in an unwinnable loop.
+        if text.strip().lower() in ("yes", "yeah", "yep", "correct", "that's right"):
+            result["confirmed"] = True
+
+    if not result["email"]:
+        result["email"] = _spoken_email_fallback(text)
+    if not result["phone"]:
+        result["phone"] = extract_phone(text)
+    return result
+
+
 async def process_session(session_id: str, visitor_id: str,
                           turns: list[dict[str, Any]],
                           confirmed_contact: Optional[dict[str, Any]] = None) -> None:

@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from . import config
+from . import ai_models, config
 
 log = logging.getLogger("stt")
 
@@ -51,7 +51,7 @@ def websocket_url(token: str) -> str:
         "token": token,
         "sample_rate": config.AAI_SAMPLE_RATE,
         "encoding": "pcm_s16le",
-        "speech_model": config.AAI_SPEECH_MODEL,
+        "speech_model": ai_models.aai_speech_model(),
         "format_turns": "true",
         "end_of_turn_confidence_threshold": "0.7",
         "min_turn_silence": "600",
