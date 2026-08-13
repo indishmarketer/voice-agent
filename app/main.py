@@ -1569,6 +1569,18 @@ def _slugify(business_name: str) -> str:
     return base
 
 
+def _ordinal_date(iso_date: str) -> str:
+    """"2026-08-31" -> "31st August" - falls back to the raw string if it is
+    not a plain ISO date, rather than raising on a malformed config value."""
+    try:
+        dt = datetime.datetime.strptime(iso_date, "%Y-%m-%d")
+    except ValueError:
+        return iso_date
+    day = dt.day
+    suffix = "th" if 10 <= day % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{day}{suffix} {dt.strftime('%B')}"
+
+
 @app.get("/apply", response_class=HTMLResponse)
 async def apply_page(request: Request) -> Response:
     spots_left = max(0, config.MAX_ACCOUNTS - store.count_approved_accounts())
@@ -1581,7 +1593,7 @@ async def apply_page(request: Request) -> Response:
             # later renames their live agent's brand_name setting to.
             "brand": config.BRAND_NAME,
             "spots_left": spots_left,
-            "trial_end": config.DEFAULT_TRIAL_END_DATE,
+            "trial_end": _ordinal_date(config.DEFAULT_TRIAL_END_DATE),
         },
     )
 
