@@ -52,10 +52,11 @@ CONTACT_MARKER = "[[COLLECT_CONTACT]]"
 SETTINGS_KEY_AGENT_RULES = "agent_rules"
 
 
-def _default_behavior_rules() -> str:
+def _default_behavior_rules(account_id: Optional[int] = None) -> str:
     # A plain f-string, not .format() - this only ever runs on trusted code
     # (config values), never on admin-edited text, so there is no risk of a
     # stray brace in this default breaking anything.
+    website = branding.website_url(account_id)
     return f"""Answer from the company knowledge provided below. It is the
 source of truth - if it does not cover something, say you will have the team
 follow up rather than inventing details. Never invent prices, timelines or
@@ -82,7 +83,7 @@ contact detail in the same reply as the trigger. Do not trigger this more
 than once in a call. If they already declined, or their details are already
 on file, do not trigger it again.
 
-To end a call, thank them and mention {config.WEBSITE_URL}."""
+To end a call, thank them and mention {website}."""
 
 
 def active_behavior_rules(account_id: Optional[int] = None) -> str:
@@ -92,7 +93,7 @@ def active_behavior_rules(account_id: Optional[int] = None) -> str:
     customised its own rules yet, so a fresh sub-account still asks the
     right questions and still collects contact details - only the wording
     differs once an owner writes their own."""
-    return store.get_setting(SETTINGS_KEY_AGENT_RULES, "", account_id) or _default_behavior_rules()
+    return store.get_setting(SETTINGS_KEY_AGENT_RULES, "", account_id) or _default_behavior_rules(account_id)
 
 
 def build_system_prompt(user_text: str, visitor: Optional[dict[str, Any]] = None,

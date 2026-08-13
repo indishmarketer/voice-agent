@@ -87,6 +87,19 @@ def get_branding(account_id: Optional[int] = None) -> dict[str, str]:
     }
 
 
+def website_url(account_id: Optional[int] = None) -> str:
+    """The link shown in caller-facing messages (quota/time-limit notices,
+    the "mention our site" instruction in the default prompt). A sub-account
+    without a website on file falls back to the platform's own - better
+    than a broken/empty link, though every account should have one now that
+    /apply requires it."""
+    if account_id is not None:
+        account = store.get_account(account_id)
+        if account and account.get("website"):
+            return account["website"]
+    return config.WEBSITE_URL
+
+
 def _round_corners(image, radius_fraction: float):
     """Bake rounded corners into the pixels themselves.
 

@@ -102,9 +102,13 @@
                 <input id="email" name="email" type="email" required maxlength="200"
                        placeholder="you@yourbusiness.com">
 
-                <label for="website">Website <em style="font-weight:400;color:var(--text-muted)">(optional)</em></label>
-                <input id="website" name="website" type="text" maxlength="200"
+                <label for="website">Website</label>
+                <input id="website" name="website" type="text" required maxlength="200"
                        placeholder="https://yourbusiness.com">
+                <p class="hint" style="margin:-8px 0 0;font-size:11.5px">
+                    Callers are pointed here whenever they've reached a limit or
+                    the call ends - don't have one yet? Make one first.
+                </p>
 
                 <label for="country">Country</label>
                 <select id="country" name="country" required>

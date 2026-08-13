@@ -20,7 +20,7 @@ from typing import Any, Optional
 import httpx
 from fastapi import Request
 
-from . import config, integrations, store
+from . import branding, config, integrations, store
 
 
 class Denied(Exception):
@@ -234,8 +234,17 @@ def check_account_daily_cap(account: Optional[dict[str, Any]]) -> None:
 
 # --- Quotas -----------------------------------------------------------------
 
-def enforce_quotas(ip_hash: str, visitor_id: str) -> None:
-    """Raises Denied when any budget is exhausted. Cheapest checks first."""
+def enforce_quotas(ip_hash: str, visitor_id: str, account_id: Optional[int] = None) -> None:
+    """Raises Denied when any budget is exhausted. Cheapest checks first.
+
+    global_daily/global_minutes are this deployment's own infra-wide safety
+    net (protecting the shared API budget across every account at once), so
+    those always point at the platform owner's site regardless of whose
+    call tripped them. ip_daily/visitor_daily happen inside one specific
+    account's call, so those point at THAT account's own site - otherwise a
+    sub-account's callers were being told to go to the platform owner's
+    site instead of the business they were actually calling.
+    """
     if store.count_sessions_today() >= config.GLOBAL_SESSIONS_PER_DAY:
         raise Denied(
             "global_daily",
@@ -248,15 +257,16 @@ def enforce_quotas(ip_hash: str, visitor_id: str) -> None:
             "The demo has reached its limit for today. Please try again tomorrow "
             f"or reach us at {config.WEBSITE_URL}.",
         )
+    site = branding.website_url(account_id)
     if store.count_sessions_today(ip_hash=ip_hash) >= config.SESSIONS_PER_IP_PER_DAY:
         raise Denied(
             "ip_daily",
             "You have used up today's free calls. Please come back tomorrow, or "
-            f"book a real conversation at {config.WEBSITE_URL}.",
+            f"book a real conversation at {site}.",
         )
     if store.count_sessions_today(visitor_id=visitor_id) >= config.SESSIONS_PER_VISITOR_PER_DAY:
         raise Denied(
             "visitor_daily",
             "You have used up today's free calls. Please come back tomorrow, or "
-            f"book a real conversation at {config.WEBSITE_URL}.",
+            f"book a real conversation at {site}.",
         )

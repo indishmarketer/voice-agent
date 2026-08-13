@@ -5,7 +5,7 @@
  * injects it via JS rather than raw HTML (see findTag() below):
  *
  *   <script src="https://<your-domain>/embed.js"
- *           data-account="<slug>"
+ *           data-account="<slug>"   (omit this for the main/platform account)
  *           data-label="Voice Agent"   (optional, shown under the button)
  *           data-position="bottom-right"  (optional: bottom-right|bottom-left)
  *           async></script>
@@ -13,8 +13,9 @@
  * Self-contained: injects its own button + centered modal, no dependency on
  * the host page's CSS or JS, and namespaced so it cannot collide with the
  * host's own styles. The modal loads the same full call UI served at "/",
- * scoped to this account via ?account=<slug> - a behaviour/UI change to the
- * main call screen applies to every embed for free.
+ * scoped to this account via ?account=<slug> (or unscoped, for the main
+ * account) - a behaviour/UI change to the main call screen applies to
+ * every embed for free.
  */
 (function () {
   if (window.__voiceAgentEmbedLoaded) return; // idempotent if pasted twice
@@ -24,26 +25,21 @@
     // document.currentScript is only reliable for a script executing as
     // part of the initial synchronous HTML parse. Several site builders'
     // "custom code" boxes inject the tag via JS instead, which leaves
-    // currentScript null - fall back to searching the DOM for our own
-    // marker attribute, which survives either way.
-    if (document.currentScript && document.currentScript.hasAttribute("data-account")) {
-      return document.currentScript;
-    }
-    var tags = document.querySelectorAll("script[data-account]");
+    // currentScript null - fall back to searching the DOM by src, which
+    // survives either way and does not depend on data-account being set
+    // (the main account's own embed has no slug to key off of).
+    if (document.currentScript) return document.currentScript;
+    var tags = document.querySelectorAll('script[src*="embed.js"]');
     return tags.length ? tags[tags.length - 1] : null;
   }
 
   var tag = findTag();
   if (!tag) {
-    console.error("[voice-agent embed] could not find its own <script> tag " +
-                  "(missing data-account?) - the widget will not appear.");
+    console.error("[voice-agent embed] could not find its own <script> tag - " +
+                  "the widget will not appear.");
     return;
   }
-  var account = tag.getAttribute("data-account");
-  if (!account) {
-    console.error("[voice-agent embed] missing data-account attribute.");
-    return;
-  }
+  var account = tag.getAttribute("data-account") || ""; // "" = the main account
   var label = tag.getAttribute("data-label") || "Voice Agent";
   var position = tag.getAttribute("data-position") === "bottom-left" ? "left" : "right";
   var origin = new URL(tag.src, location.href).origin;
@@ -110,7 +106,7 @@
     overlay.classList.add("open");
     if (!iframe) {
       iframe = document.createElement("iframe");
-      iframe.src = origin + "/?account=" + encodeURIComponent(account);
+      iframe.src = account ? origin + "/?account=" + encodeURIComponent(account) : origin + "/";
       iframe.allow = "microphone";
       modal.appendChild(iframe);
     }

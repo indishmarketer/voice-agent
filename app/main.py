@@ -270,7 +270,7 @@ async def start_session(request: Request) -> Response:
         try:
             security.check_account(account)
             security.check_account_daily_cap(account)
-            security.enforce_quotas(ip_hash, scoped_visitor_id)
+            security.enforce_quotas(ip_hash, scoped_visitor_id, account_id)
         except security.Denied as denied:
             log.info("session denied (%s) ip=%s account=%s", denied.reason,
                      ip_hash[:8], account_id)
@@ -485,7 +485,7 @@ async def _watchdog(call: Call) -> None:
             "type": "ended",
             "reason": "time_limit",
             "message": "That is all the time this demo allows. "
-                       f"Visit {config.WEBSITE_URL} to keep the conversation going.",
+                       f"Visit {branding.website_url(call.account_id)} to keep the conversation going.",
         })
         await asyncio.sleep(0.4)
         with contextlib.suppress(Exception):
@@ -504,7 +504,7 @@ async def _run_call(call: Call) -> None:
             await call.send_json({
                 "type": "ended", "reason": "idle",
                 "message": "I did not hear anything, so I will hang up. "
-                           f"Visit {config.WEBSITE_URL} any time.",
+                           f"Visit {branding.website_url(call.account_id)} any time.",
             })
             return
         except (WebSocketDisconnect, RuntimeError):
@@ -591,7 +591,7 @@ async def _handle_turn(call: Call, text: str) -> None:
     if call.turn_count >= config.MAX_TURNS_PER_SESSION:
         await call.send_json({
             "type": "ended", "reason": "turn_limit",
-            "message": f"We have covered a lot. Visit {config.WEBSITE_URL} "
+            "message": f"We have covered a lot. Visit {branding.website_url(call.account_id)} "
                        "and the team will take it from here.",
         })
         return
@@ -1177,9 +1177,16 @@ async def admin_dashboard(request: Request,
                           admin: dict[str, Any] = Depends(_require_admin)) -> Response:
     ctx = _admin_base_context(request, "dashboard", admin)
     ctx["usage"] = store.usage_summary(admin["account_id"])
-    if not admin["is_super"] and admin.get("account"):
+    base = f"{request.url.scheme}://{request.url.netloc}"
+    if admin["is_super"]:
+        # No data-account attribute at all - embed.js treats that as "the
+        # main account", same as the direct link needing no ?account=.
+        ctx.update({
+            "direct_link": base + "/",
+            "embed_snippet": f'<script src="{base}/embed.js" async><' + '/script>',
+        })
+    elif admin.get("account"):
         slug = admin["account"]["slug"]
-        base = f"{request.url.scheme}://{request.url.netloc}"
         ctx.update({
             "direct_link": f"{base}/?account={slug}",
             "embed_snippet": f'<script src="{base}/embed.js" data-account="{slug}" async><' + '/script>',
@@ -1268,7 +1275,7 @@ async def admin_settings_page(request: Request,
     ctx = _admin_base_context(request, "settings", admin)
     ctx.update({
         "agent_rules": prompts.active_behavior_rules(admin["account_id"]),
-        "default_rules": prompts._default_behavior_rules(),
+        "default_rules": prompts._default_behavior_rules(admin["account_id"]),
         "branding": branding.get_branding(admin["account_id"]),
         "logo_url": branding.logo_url(admin["account_id"], "logo"),
     })
@@ -1589,9 +1596,18 @@ async def apply_submit(request: Request) -> Response:
     note = (body.get("note") or "").strip()[:1000]
     country = (body.get("country") or "").strip()[:80]
 
+    if website and not re.match(r"^https?://", website, re.IGNORECASE):
+        website = f"https://{website}"
+
     if not business_name or not email or "@" not in email:
         return JSONResponse(
             {"error": "Business name and a valid email are required."}, status_code=400
+        )
+    if not website or "." not in website:
+        return JSONResponse(
+            {"error": "A website is required - callers are pointed there whenever "
+                      "they hit a limit or the call ends."},
+            status_code=400,
         )
     ip_hash = security.hash_ip(security.client_ip(request))
     try:
@@ -1751,6 +1767,106 @@ async def admin_accounts_delete(request: Request,
     store.delete_account(account_id)
     log.info("account deleted: %s", account_id)
     return JSONResponse({"ok": True})
+
+
+# --- Sub-account profile (business info + confirmed email change) --------
+
+PROFILE_TEXT_FIELDS = {"business_name": 120, "website": 200, "phone": 40, "address": 300}
+
+
+@app.post("/admin/profile")
+async def update_profile(request: Request,
+                         admin: dict[str, Any] = Depends(_require_admin)) -> Response:
+    if admin["account_id"] is None:
+        return JSONResponse({"error": "Not available for the main account."}, status_code=400)
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+
+    updates: dict[str, str] = {}
+    for field, max_len in PROFILE_TEXT_FIELDS.items():
+        value = body.get(field)
+        if value is None or not isinstance(value, str):
+            continue
+        value = value.strip()
+        if len(value) > max_len:
+            return JSONResponse(
+                {"error": f"{field.replace('_', ' ')} is too long."}, status_code=400
+            )
+        updates[field] = value
+
+    if "website" in updates:
+        if not updates["website"]:
+            return JSONResponse(
+                {"error": "Website cannot be empty - callers are pointed there "
+                          "whenever they hit a limit or the call ends."},
+                status_code=400,
+            )
+        if not re.match(r"^https?://", updates["website"], re.IGNORECASE):
+            updates["website"] = f"https://{updates['website']}"
+
+    store.update_account_profile(admin["account_id"], **updates)
+    log.info("account %s profile updated: %s", admin["account_id"], list(updates))
+    return JSONResponse({"ok": True})
+
+
+@app.post("/admin/profile/email-change")
+async def request_email_change(request: Request,
+                                admin: dict[str, Any] = Depends(_require_admin)) -> Response:
+    if admin["account_id"] is None:
+        return JSONResponse({"error": "Not available for the main account."}, status_code=400)
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+    new_email = (body.get("email") or "").strip().lower()[:200]
+    if not new_email or "@" not in new_email:
+        return JSONResponse({"error": "A valid email is required."}, status_code=400)
+    if new_email == admin["email"]:
+        return JSONResponse({"error": "That is already your email."}, status_code=400)
+
+    # This email doubles as the login for whichever account owns it, so two
+    # accounts sharing one would mean whoever confirms first silently takes
+    # over the other's login.
+    if new_email in config.ADMIN_EMAILS:
+        return JSONResponse({"error": "That email is already in use."}, status_code=400)
+    existing = store.get_account_by_email(new_email)
+    if existing and existing["id"] != admin["account_id"] and existing["status"] == "approved":
+        return JSONResponse({"error": "That email is already in use."}, status_code=400)
+
+    try:
+        security.check_cooldown(f"email-change:{admin['account_id']}", 30)
+    except security.Denied as denied:
+        return JSONResponse({"error": denied.message}, status_code=denied.status)
+
+    token = secrets.token_urlsafe(32)
+    store.start_email_change(admin["account_id"], new_email, token)
+    link = f"{request.url.scheme}://{request.url.netloc}/admin/profile/confirm-email?token={token}"
+    account = store.get_account(admin["account_id"])
+    try:
+        await mailer.send_email_change_confirmation(new_email, account["business_name"], link)
+    except Exception as exc:
+        log.error("failed to send email-change confirmation: %s", exc)
+        return JSONResponse(
+            {"error": "Could not send the confirmation email. Try again shortly."},
+            status_code=502,
+        )
+    log.info("account %s requested email change to %s...", admin["account_id"], new_email[:3])
+    return JSONResponse({"ok": True})
+
+
+@app.get("/admin/profile/confirm-email")
+async def admin_confirm_email_change(request: Request, token: str = "") -> Response:
+    account = store.get_account_by_pending_token(token) if token else None
+    new_email = store.confirm_email_change(account["id"]) if account else None
+    if not new_email:
+        return RedirectResponse("/admin/login?error=1")
+    log.info("account %s email confirmed and changed to %s...", account["id"], new_email[:3])
+    # The just-changed session cookie's baked-in email no longer matches this
+    # account's row, so it is already invalid - clearing it explicitly avoids
+    # leaving a dead cookie behind and sends them straight to a clean login.
+    response = RedirectResponse("/admin/login")
+    response.delete_cookie(ADMIN_SESSION_COOKIE)
+    return response
 
 
 # --- Support widget (bug reports / feedback) -----------------------------

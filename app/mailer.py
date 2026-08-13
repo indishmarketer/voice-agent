@@ -58,6 +58,20 @@ async def send_account_approved(to_email: str, business_name: str, login_link: s
     )
 
 
+async def send_email_change_confirmation(new_email: str, business_name: str,
+                                         confirm_link: str) -> None:
+    await _send(
+        new_email,
+        f"Confirm your new login email for {business_name}",
+        "<p>You asked to change the email used to sign in to your "
+        f"{config.BRAND_NAME} dashboard.</p>"
+        f'<p><a href="{confirm_link}">Click here to confirm this email address</a> '
+        "- this link expires in 15 minutes.</p>"
+        "<p>Nothing changes until you click that link. If you did not request "
+        "this, you can safely ignore this email.</p>",
+    )
+
+
 async def send_limit_reached(to_email: str, business_name: str, reason: str) -> None:
     if reason == "trial_expired":
         subject = f"{business_name}: your free trial has ended"

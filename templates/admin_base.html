@@ -123,6 +123,13 @@
             display: flex; align-items: center; justify-content: center;
             font-size: 12.5px; font-weight: 600; flex-shrink: 0;
         }
+        .profile-trigger {
+            display: flex; align-items: center; gap: 10px; min-width: 0;
+            background: none; border: none; padding: 0; margin: 0;
+            font: inherit; color: inherit; text-align: left; cursor: pointer;
+            border-radius: 8px;
+        }
+        .profile-trigger:hover { opacity: .8; }
         .sidebar-foot .who { min-width: 0; }
         .sidebar-foot .who .n { font-size: 13px; font-weight: 500; }
         .sidebar-foot .who .e {
@@ -330,11 +337,21 @@
             </a>
         </nav>
         <div class="sidebar-foot">
+            {% if not is_super and account %}
+            <button type="button" id="btn-open-profile" class="profile-trigger" aria-label="Edit profile">
+                <div class="avatar">{{ owner_initial or "A" }}</div>
+                <div class="who">
+                    <div class="n">{{ account.business_name }}</div>
+                    <div class="e">{{ owner_email or "token access" }}</div>
+                </div>
+            </button>
+            {% else %}
             <div class="avatar">{{ owner_initial or "A" }}</div>
             <div class="who">
                 <div class="n">Admin</div>
                 <div class="e">{{ owner_email or "token access" }}</div>
             </div>
+            {% endif %}
             {% if owner_email %}
             <button type="button" id="btn-logout" class="icon-btn" aria-label="Log out" title="Log out" style="margin-left:auto">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -369,6 +386,51 @@
         </div>
     </div>
 </div>
+
+{% if not is_super and account %}
+<div id="profile-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px">
+    <div class="panel" style="max-width:440px;width:100%;max-height:90vh;overflow-y:auto">
+        <p style="margin:0 0 16px;font-weight:600;font-size:15px">Your profile</p>
+
+        <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Business name</label>
+        <input type="text" id="profile-business-name" value="{{ account.business_name }}" style="width:100%;margin-bottom:12px">
+
+        <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Website</label>
+        <input type="text" id="profile-website" value="{{ account.website or '' }}" style="width:100%;margin-bottom:12px">
+
+        <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Phone</label>
+        <input type="text" id="profile-phone" value="{{ account.phone or '' }}" style="width:100%;margin-bottom:12px">
+
+        <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Address</label>
+        <textarea id="profile-address" rows="2" style="width:100%;resize:vertical;margin-bottom:12px">{{ account.address or '' }}</textarea>
+
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:20px">
+            <button type="button" id="profile-save">Save changes</button>
+            <span id="profile-save-out" class="status-msg"></span>
+        </div>
+
+        <div style="border-top:1px solid var(--border);padding-top:16px">
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">
+                Login email - currently <strong>{{ owner_email }}</strong>
+            </label>
+            <p class="hint" style="margin:0 0 8px;font-size:11.5px">
+                Changing this sends a confirmation link to the new address first -
+                nothing changes until you click it, and you'll need to log back in
+                with the new email afterward.
+            </p>
+            <div style="display:flex;gap:8px">
+                <input type="email" id="profile-new-email" placeholder="new@email.com" style="flex:1">
+                <button type="button" class="ghost" id="profile-change-email">Change</button>
+            </div>
+            <div id="profile-email-out" class="status-msg" style="margin-top:6px"></div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;margin-top:20px">
+            <button type="button" class="ghost" id="profile-close">Close</button>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 {% if not is_super %}
 <div id="support-widget">
@@ -484,6 +546,60 @@ if (btnLogout) {
     btnLogout.addEventListener("click", async () => {
         await fetch("/admin/logout", { method: "POST" });
         location.href = "/admin/login";
+    });
+}
+
+const btnOpenProfile = document.getElementById("btn-open-profile");
+if (btnOpenProfile) {
+    const modal = document.getElementById("profile-modal");
+    const saveOut = document.getElementById("profile-save-out");
+    const emailOut = document.getElementById("profile-email-out");
+
+    btnOpenProfile.addEventListener("click", () => { modal.style.display = "flex"; });
+    document.getElementById("profile-close").addEventListener("click", () => { modal.style.display = "none"; });
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.style.display = "none"; });
+
+    document.getElementById("profile-save").addEventListener("click", async () => {
+        saveOut.textContent = "Saving…";
+        saveOut.className = "status-msg";
+        try {
+            const res = await fetch("/admin/profile", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    business_name: document.getElementById("profile-business-name").value,
+                    website: document.getElementById("profile-website").value,
+                    phone: document.getElementById("profile-phone").value,
+                    address: document.getElementById("profile-address").value,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || "Could not save.");
+            saveOut.textContent = "Saved.";
+            setTimeout(() => location.reload(), 700);
+        } catch (err) {
+            saveOut.textContent = err.message;
+            saveOut.className = "status-msg err";
+        }
+    });
+
+    document.getElementById("profile-change-email").addEventListener("click", async () => {
+        const newEmail = document.getElementById("profile-new-email").value.trim();
+        emailOut.textContent = "Sending…";
+        emailOut.className = "status-msg";
+        try {
+            const res = await fetch("/admin/profile/email-change", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: newEmail }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || "Could not send confirmation email.");
+            emailOut.textContent = "Check the new inbox for a confirmation link.";
+        } catch (err) {
+            emailOut.textContent = err.message;
+            emailOut.className = "status-msg err";
+        }
     });
 }
 

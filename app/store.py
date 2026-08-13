@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     business_name        TEXT NOT NULL,
     website              TEXT,
     email                TEXT NOT NULL,
+    phone                TEXT,
+    address              TEXT,
     note                 TEXT,
     country              TEXT,
     status               TEXT NOT NULL DEFAULT 'pending',
@@ -100,6 +102,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     daily_minutes_limit  INTEGER NOT NULL DEFAULT 20,
     trial_ends_at        REAL,
     last_limit_email_at  REAL,
+    pending_email        TEXT,
+    pending_email_token  TEXT,
+    pending_email_expires_at REAL,
     created_at           REAL NOT NULL,
     approved_at          REAL
 );
@@ -141,11 +146,19 @@ def init() -> None:
             cols = {r["name"] for r in _conn.execute(f"PRAGMA table_info({table})")}
             if "account_id" not in cols:
                 _conn.execute(f"ALTER TABLE {table} ADD COLUMN account_id INTEGER")
-        # accounts predates the "country" field used to pick a default voice
-        # preset at application time.
+        # accounts predates "country", and predates the profile fields below
+        # (phone/address, and the pending-email-change columns).
         account_cols = {r["name"] for r in _conn.execute("PRAGMA table_info(accounts)")}
-        if "country" not in account_cols:
-            _conn.execute("ALTER TABLE accounts ADD COLUMN country TEXT")
+        for col, coldef in (
+            ("country", "TEXT"),
+            ("phone", "TEXT"),
+            ("address", "TEXT"),
+            ("pending_email", "TEXT"),
+            ("pending_email_token", "TEXT"),
+            ("pending_email_expires_at", "REAL"),
+        ):
+            if col not in account_cols:
+                _conn.execute(f"ALTER TABLE accounts ADD COLUMN {col} {coldef}")
         _conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sessions_account_day "
             "ON sessions(account_id, day)"
@@ -640,6 +653,57 @@ def mark_limit_email_sent(account_id: int) -> None:
         "UPDATE accounts SET last_limit_email_at = ? WHERE id = ?",
         (time.time(), account_id),
     )
+
+
+def update_account_profile(account_id: int, business_name: Optional[str] = None,
+                           website: Optional[str] = None, phone: Optional[str] = None,
+                           address: Optional[str] = None) -> None:
+    """Everything except email - that one needs confirmation first (see
+    start_email_change/confirm_email_change) since it doubles as this
+    account's admin login."""
+    sets, params = [], []
+    for col, val in (("business_name", business_name), ("website", website),
+                     ("phone", phone), ("address", address)):
+        if val is not None:
+            sets.append(f"{col} = ?")
+            params.append(val)
+    if not sets:
+        return
+    params.append(account_id)
+    _exec(f"UPDATE accounts SET {', '.join(sets)} WHERE id = ?", tuple(params))
+
+
+def start_email_change(account_id: int, new_email: str, token: str,
+                       ttl_seconds: int = 900) -> None:
+    _exec(
+        "UPDATE accounts SET pending_email = ?, pending_email_token = ?, "
+        "pending_email_expires_at = ? WHERE id = ?",
+        (new_email, token, time.time() + ttl_seconds, account_id),
+    )
+
+
+def get_account_by_pending_token(token: str) -> Optional[dict[str, Any]]:
+    rows = _query("SELECT * FROM accounts WHERE pending_email_token = ?", (token,))
+    return dict(rows[0]) if rows else None
+
+
+def confirm_email_change(account_id: int) -> Optional[str]:
+    """Applies a pending email change if the token has not expired. Returns
+    the new email on success, or None if there was nothing valid pending -
+    the caller does not need to inspect the row itself to tell those apart."""
+    account = get_account(account_id)
+    if not account or not account.get("pending_email"):
+        return None
+    if not account.get("pending_email_expires_at") or \
+            account["pending_email_expires_at"] < time.time():
+        return None
+    new_email = account["pending_email"]
+    _exec(
+        "UPDATE accounts SET email = ?, pending_email = NULL, "
+        "pending_email_token = NULL, pending_email_expires_at = NULL WHERE id = ?",
+        (new_email, account_id),
+    )
+    return new_email
 
 
 # --- Support widget (bug reports / feedback) --------------------------------
