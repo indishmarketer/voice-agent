@@ -14,8 +14,8 @@
             }
         } catch (_) {}
     </script>
-    <link rel="icon" type="image/png" href="{{ asset('img/favicon.png') }}">
-    <link rel="apple-touch-icon" href="{{ asset('img/apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" href="{{ favicon_url }}">
+    <link rel="apple-touch-icon" href="{{ apple_touch_icon_url }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ asset('style.css') }}">
     {% if turnstile_site_key %}
@@ -43,7 +43,7 @@
         <div id="dial-screen" class="screen active">
             <div class="brand">
                 <div class="logo">
-                    <img src="{{ asset('img/logo.png') }}" alt="{{ brand }}">
+                    <img src="{{ logo_url }}" alt="{{ brand }}">
                 </div>
                 <h1>{{ brand }}</h1>
                 <p>{{ tagline }}</p>
@@ -69,7 +69,7 @@
                 <div class="agent-orb" id="agent-orb" aria-hidden="true">
                     <div class="ring"></div>
                     <div class="core">
-                        <img src="{{ asset('img/logo.png') }}" alt="">
+                        <img src="{{ logo_url }}" alt="">
                     </div>
                 </div>
                 <h2>{{ agent_name }}</h2>

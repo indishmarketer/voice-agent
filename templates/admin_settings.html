@@ -12,16 +12,14 @@
         dashboard's own look, only the public call app.
     </p>
     <form id="branding-form">
-        {% if is_super %}
         <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;margin-bottom:16px">
-            <img id="logo-preview" src="{{ asset('img/logo.png') }}" alt="Current logo"
+            <img id="logo-preview" src="{{ logo_url }}" alt="Current logo"
                  style="width:64px;height:64px;border-radius:16px;object-fit:cover;border:1px solid var(--border)">
             <div style="flex:1;min-width:220px">
                 <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Logo (square image works best)</label>
                 <input type="file" name="logo" id="logo-input" accept="image/*">
             </div>
         </div>
-        {% endif %}
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px;margin-bottom:16px">
             <div>
                 <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Brand name</label>

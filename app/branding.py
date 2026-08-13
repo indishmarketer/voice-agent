@@ -22,6 +22,43 @@ LOGO_PATH = config.BASE_DIR / "static" / "img" / "logo.png"
 FAVICON_PATH = config.BASE_DIR / "static" / "img" / "favicon.png"
 APPLE_TOUCH_ICON_PATH = config.BASE_DIR / "static" / "img" / "apple-touch-icon.png"
 
+_FILENAMES = {"logo": "logo.png", "favicon": "favicon.png",
+             "apple_touch_icon": "apple-touch-icon.png"}
+
+
+def _account_branding_dir(account_id: int):
+    return config.DATA_DIR / "accounts" / str(account_id) / "branding"
+
+
+def logo_paths(account_id: Optional[int] = None) -> dict[str, "object"]:
+    """Every sub-account gets its own logo/favicon/apple-touch-icon on disk -
+    previously these were one shared file, so a sub-account uploading a logo
+    would have silently replaced the main account's. None is the original
+    single-tenant agent, unchanged."""
+    if account_id is None:
+        return {"logo": LOGO_PATH, "favicon": FAVICON_PATH,
+                "apple_touch_icon": APPLE_TOUCH_ICON_PATH}
+    d = _account_branding_dir(account_id)
+    return {kind: d / name for kind, name in _FILENAMES.items()}
+
+
+def logo_url(account_id: Optional[int] = None, kind: str = "logo") -> str:
+    """URL for /branding/<scope>/<file>, served by the route in main.py.
+    Falls back to the shared default asset if this account has not uploaded
+    its own - so a fresh sub-account looks right immediately, same as its
+    text branding defaults to its business name until customised."""
+    path = logo_paths(account_id)[kind]
+    if account_id is not None and not path.exists():
+        path = logo_paths(None)[kind]
+        scope = "default"
+    else:
+        scope = "default" if account_id is None else str(account_id)
+    try:
+        version = int(path.stat().st_mtime) if path.exists() else 0
+    except OSError:
+        version = 0
+    return f"/branding/{scope}/{_FILENAMES[kind]}?v={version}"
+
 
 def get_branding(account_id: Optional[int] = None) -> dict[str, str]:
     """The current effective branding - saved overrides, or seed defaults.
@@ -70,10 +107,16 @@ def _round_corners(image, radius_fraction: float):
     return rounded
 
 
-def regenerate_logo_assets(image_bytes: bytes) -> None:
+def regenerate_logo_assets(image_bytes: bytes, account_id: Optional[int] = None) -> None:
     """Replace logo.png with the upload, and regenerate favicon +
-    apple-touch-icon from it so all three stay in sync."""
+    apple-touch-icon from it so all three stay in sync. Writes to this
+    account's own files (see logo_paths) - never the shared default unless
+    account_id is None."""
     from PIL import Image
+
+    paths = logo_paths(account_id)
+    for path in paths.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
 
     source = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     # Square it against the longer side so an oblong upload does not distort.
@@ -82,10 +125,10 @@ def regenerate_logo_assets(image_bytes: bytes) -> None:
     square.paste(source, ((side - source.size[0]) // 2, (side - source.size[1]) // 2))
 
     logo = square.resize((320, 320), Image.LANCZOS)
-    logo.save(LOGO_PATH)
+    logo.save(paths["logo"])
 
     favicon = _round_corners(square.resize((64, 64), Image.LANCZOS), 0.22)
-    favicon.save(FAVICON_PATH)
+    favicon.save(paths["favicon"])
 
     apple_icon = _round_corners(square.resize((180, 180), Image.LANCZOS), 0.22)
-    apple_icon.save(APPLE_TOUCH_ICON_PATH)
+    apple_icon.save(paths["apple_touch_icon"])

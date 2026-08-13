@@ -25,7 +25,9 @@ from fastapi import (
     Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile, File,
     WebSocket, WebSocketDisconnect,
 )
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -157,7 +159,8 @@ async def _maybe_notify_limit(account: dict[str, Any], reason: str) -> None:
 async def index(request: Request) -> Response:
     visitor_id, is_new = _visitor_id_from(request)
     account = _resolve_account(request)
-    current_branding = branding.get_branding(account["id"] if account else None)
+    account_id = account["id"] if account else None
+    current_branding = branding.get_branding(account_id)
     response = templates.TemplateResponse(
         "index.html",
         {
@@ -166,11 +169,38 @@ async def index(request: Request) -> Response:
             "tagline": current_branding["tagline"],
             "agent_name": current_branding["agent_name"],
             "turnstile_site_key": integrations.turnstile_site_key(),
+            "logo_url": branding.logo_url(account_id, "logo"),
+            "favicon_url": branding.logo_url(account_id, "favicon"),
+            "apple_touch_icon_url": branding.logo_url(account_id, "apple_touch_icon"),
         },
     )
     if is_new:
         _set_visitor_cookie(response, visitor_id)
     return response
+
+
+@app.get("/branding/{scope}/{filename}")
+async def branding_asset(scope: str, filename: str) -> Response:
+    """Serves per-account logo/favicon/apple-touch-icon (see branding.py).
+    scope is either "default" (the main account) or an account id."""
+    kind_by_filename = {"logo.png": "logo", "favicon.png": "favicon",
+                        "apple-touch-icon.png": "apple_touch_icon"}
+    kind = kind_by_filename.get(filename)
+    if not kind:
+        raise HTTPException(status_code=404)
+
+    account_id: Optional[int] = None
+    if scope != "default":
+        if not scope.isdigit():
+            raise HTTPException(status_code=404)
+        account_id = int(scope)
+
+    path = branding.logo_paths(account_id)[kind]
+    if not path.exists():
+        path = branding.logo_paths(None)[kind]
+    if not path.exists():
+        raise HTTPException(status_code=404)
+    return FileResponse(path, headers={"Cache-Control": "public, max-age=300"})
 
 
 @app.get("/healthz", response_class=PlainTextResponse)
@@ -211,7 +241,18 @@ async def start_session(request: Request) -> Response:
     # per-IP daily cap as the public - incognito clears the visitor cookie but
     # not the IP. A token only the owner has (never shipped in the client
     # bundle - see static/app.js) skips both the bot check and the quotas.
-    is_owner = security.is_admin(request.headers.get("x-owner-token", ""))
+    #
+    # A sub-account admin gets the same bypass on THEIR OWN agent for free
+    # just by being logged into their own dashboard in the same browser (the
+    # admin session cookie already proves who they are) - without this, a
+    # business owner testing their own agent from their own dashboard link
+    # was hitting the same public anti-abuse quotas as a stranger, which is
+    # exactly the "usage is over" report this fixes.
+    admin_ctx = _admin_context_from_cookie(request)
+    is_owner = (
+        security.is_admin(request.headers.get("x-owner-token", ""))
+        or bool(admin_ctx and (admin_ctx["is_super"] or admin_ctx["account_id"] == account_id))
+    )
 
     if not is_owner and not await security.verify_turnstile(
         body.get("turnstile_token", ""), ip
@@ -1205,6 +1246,7 @@ async def admin_settings_page(request: Request,
         "agent_rules": prompts.active_behavior_rules(admin["account_id"]),
         "default_rules": prompts._default_behavior_rules(),
         "branding": branding.get_branding(admin["account_id"]),
+        "logo_url": branding.logo_url(admin["account_id"], "logo"),
     })
     return templates.TemplateResponse("admin_settings.html", ctx)
 
@@ -1256,19 +1298,12 @@ async def save_branding(request: Request,
             )
 
     if logo is not None and logo.filename:
-        # The logo is one shared image file on disk, not a per-account
-        # setting - a sub-account uploading one would silently replace the
-        # main account's logo too, so this stays owner-only.
-        if not admin["is_super"]:
-            return JSONResponse(
-                {"error": "Only the main account can change the logo."}, status_code=403
-            )
         content = await logo.read()
         if len(content) > MAX_LOGO_BYTES:
             return JSONResponse({"error": "Logo image is too large (5MB max)."},
                                 status_code=400)
         try:
-            branding.regenerate_logo_assets(content)
+            branding.regenerate_logo_assets(content, admin["account_id"])
         except Exception as exc:
             log.warning("logo upload rejected: %s", exc)
             return JSONResponse({"error": "That does not look like a valid image."},
