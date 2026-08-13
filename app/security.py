@@ -154,6 +154,37 @@ def active_count() -> int:
     return len(_active)
 
 
+# --- Simple cooldowns ---------------------------------------------------
+#
+# Not a general rate limiter - just "one of these per key per N seconds",
+# for the handful of unauthenticated POST endpoints (magic-link requests,
+# beta applications) that have no other throttle. In-process and best
+# effort, same trade-off as _active above: fine for a single-worker
+# deployment, would need Redis to scale beyond one.
+
+_cooldowns: dict[str, float] = {}
+
+
+def check_cooldown(key: str, seconds: float) -> None:
+    """Raises Denied if this key was last used within the cooldown window,
+    otherwise records this use and lets it through."""
+    now = time.time()
+    last = _cooldowns.get(key)
+    if last and now - last < seconds:
+        raise Denied(
+            "cooldown",
+            "Please wait a moment before trying again.",
+            429,
+        )
+    _cooldowns[key] = now
+    # Opportunistic cleanup so this dict cannot grow forever - cheap relative
+    # to how rarely these endpoints are hit.
+    if len(_cooldowns) > 5000:
+        cutoff = now - 3600
+        for k in [k for k, t in _cooldowns.items() if t < cutoff]:
+            _cooldowns.pop(k, None)
+
+
 # --- Accounts (sub-account trial/plan gating) -------------------------------
 
 def check_account(account: Optional[dict[str, Any]]) -> None:

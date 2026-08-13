@@ -959,6 +959,10 @@ KNOWLEDGE_TARGETS = {
     "faq": "02-faq.md",
     "pricing": "03-pricing.md",
 }
+# Generous for markdown text (way beyond KB_INLINE_LIMIT's ~7000 characters)
+# while ruling out an authenticated account uploading something huge enough
+# to pressure disk/memory on a VPS every other account also runs on.
+MAX_KNOWLEDGE_FILE_BYTES = 2 * 1024 * 1024
 
 
 ADMIN_SESSION_COOKIE = "im_admin_session"
@@ -1101,9 +1105,19 @@ async def admin_login_request(request: Request) -> Response:
         body = await request.json()
     email = (body.get("email") or "").strip().lower()
 
-    # Same response whether or not the address may log in - a different one
-    # here would let anyone probe which emails are admins.
-    if _email_may_login(email):
+    # Cooldown is checked (and always recorded) regardless of whether this
+    # email is even eligible to log in, and the response never reveals
+    # whether it fired - a distinguishable response either way would let
+    # someone email-bomb an address, or use timing/response differences to
+    # probe which addresses are valid admins.
+    on_cooldown = False
+    if email:
+        try:
+            security.check_cooldown(f"login:{email}", 30)
+        except security.Denied:
+            on_cooldown = True
+
+    if email and not on_cooldown and _email_may_login(email):
         if not config.BREVO_API_KEY or not config.BREVO_SENDER_EMAIL:
             log.error("magic-link login requested but Brevo is not configured")
             return JSONResponse(
@@ -1459,7 +1473,13 @@ async def upload_knowledge(request: Request, file: UploadFile = File(...),
         if not name.endswith(".md"):
             return JSONResponse({"error": "Only .md files are accepted."}, status_code=400)
 
-    content = (await file.read()).decode("utf-8", errors="replace")
+    raw = await file.read()
+    if len(raw) > MAX_KNOWLEDGE_FILE_BYTES:
+        return JSONResponse(
+            {"error": f"That file is too large ({MAX_KNOWLEDGE_FILE_BYTES // 1024}KB max)."},
+            status_code=400,
+        )
+    content = raw.decode("utf-8", errors="replace")
     directory = knowledge.dir_for(admin["account_id"])
     directory.mkdir(parents=True, exist_ok=True)
     (directory / name).write_text(content, encoding="utf-8")
@@ -1573,6 +1593,11 @@ async def apply_submit(request: Request) -> Response:
         return JSONResponse(
             {"error": "Business name and a valid email are required."}, status_code=400
         )
+    ip_hash = security.hash_ip(security.client_ip(request))
+    try:
+        security.check_cooldown(f"apply:{ip_hash}", 60)
+    except security.Denied as denied:
+        return JSONResponse({"error": denied.message}, status_code=denied.status)
     if store.count_approved_accounts() >= config.MAX_ACCOUNTS:
         return JSONResponse(
             {"error": "The beta is full right now. Check back soon."}, status_code=403
