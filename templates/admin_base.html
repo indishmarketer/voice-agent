@@ -286,15 +286,19 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 <span>Accounts</span>
             </a>
+            <a href="{{ nav_href('support') }}" class="{{ 'active' if active_page == 'support' else '' }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <span>Support</span>
+            </a>
             <a href="{{ nav_href('integrations') }}" class="{{ 'active' if active_page == 'integrations' else '' }}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>
                 <span>Integrations</span>
             </a>
+            {% endif %}
             <a href="{{ nav_href('settings') }}" class="{{ 'active' if active_page == 'settings' else '' }}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 <span>Settings</span>
             </a>
-            {% endif %}
         </nav>
         <div class="sidebar-foot">
             <div class="avatar">{{ owner_initial or "A" }}</div>
@@ -325,6 +329,53 @@
         {% block content %}{% endblock %}
     </main>
 </div>
+
+{% if not is_super %}
+<div id="support-widget">
+    <button type="button" id="support-fab" aria-label="Support">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </button>
+    <div id="support-panel">
+        <div id="support-menu">
+            <p style="margin:0 0 12px;font-weight:600;font-size:14px">Support</p>
+            <button type="button" class="ghost small" data-action="bug" style="width:100%;margin-bottom:8px;text-align:left">Report a bug</button>
+            <button type="button" class="ghost small" data-action="feedback" style="width:100%;margin-bottom:8px;text-align:left">Give feedback</button>
+            {% if calendar_link %}
+            <a class="btn small" href="{{ calendar_link }}" target="_blank" rel="noopener" style="display:block;width:100%;box-sizing:border-box;text-align:left;text-decoration:none;color:#fff">Book a 1:1 call</a>
+            {% else %}
+            <button type="button" class="ghost small" disabled style="width:100%;text-align:left;opacity:.5">Book a 1:1 call (not set up yet)</button>
+            {% endif %}
+        </div>
+        <div id="support-form" style="display:none">
+            <p id="support-form-title" style="margin:0 0 8px;font-weight:600;font-size:14px"></p>
+            <textarea id="support-message" rows="4" style="width:100%;font-family:inherit;font-size:13.5px;color:var(--text-main);background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:9px 11px;box-sizing:border-box" placeholder="What's going on?"></textarea>
+            <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end">
+                <button type="button" class="ghost small" id="support-back">Back</button>
+                <button type="button" class="small" id="support-submit">Send</button>
+            </div>
+            <div id="support-msg" class="status-msg" style="margin-top:6px"></div>
+        </div>
+        <div id="support-done" style="display:none;text-align:center;padding:12px 0">
+            <p style="margin:0">Thanks — we'll follow up by email.</p>
+        </div>
+    </div>
+</div>
+<style>
+    #support-fab {
+        position: fixed; bottom: 20px; right: 20px; width: 52px; height: 52px;
+        border-radius: 50%; background: var(--primary); color: #fff; border: none;
+        box-shadow: var(--shadow); cursor: pointer; display: flex; align-items: center;
+        justify-content: center; z-index: 200;
+    }
+    #support-fab svg { width: 22px; height: 22px; }
+    #support-panel {
+        display: none; position: fixed; bottom: 82px; right: 20px; width: 280px;
+        background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+        padding: 16px; box-shadow: var(--shadow); z-index: 200;
+    }
+    #support-panel.open { display: block; }
+</style>
+{% endif %}
 
 <script>
 const SUN_ICON = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
@@ -365,6 +416,59 @@ if (btnLogout) {
     btnLogout.addEventListener("click", async () => {
         await fetch("/admin/logout", { method: "POST" });
         location.href = "/admin/login";
+    });
+}
+
+const supportFab = document.getElementById("support-fab");
+if (supportFab) {
+    const panel = document.getElementById("support-panel");
+    const menu = document.getElementById("support-menu");
+    const form = document.getElementById("support-form");
+    const done = document.getElementById("support-done");
+    const formTitle = document.getElementById("support-form-title");
+    const messageBox = document.getElementById("support-message");
+    const msg = document.getElementById("support-msg");
+    let currentKind = "bug";
+
+    supportFab.addEventListener("click", () => panel.classList.toggle("open"));
+
+    document.querySelectorAll('#support-menu button[data-action]').forEach((btn) => {
+        btn.addEventListener("click", () => {
+            currentKind = btn.dataset.action;
+            formTitle.textContent = currentKind === "bug" ? "Report a bug" : "Give feedback";
+            messageBox.value = "";
+            msg.textContent = "";
+            menu.style.display = "none";
+            form.style.display = "block";
+        });
+    });
+
+    document.getElementById("support-back").addEventListener("click", () => {
+        form.style.display = "none";
+        menu.style.display = "block";
+    });
+
+    document.getElementById("support-submit").addEventListener("click", async () => {
+        const message = messageBox.value.trim();
+        if (!message) { msg.textContent = "Please write something first."; msg.className = "status-msg err"; return; }
+        try {
+            const res = await fetch("/admin/support/report", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ kind: currentKind, message }),
+            });
+            if (!res.ok) throw new Error();
+            form.style.display = "none";
+            done.style.display = "block";
+            setTimeout(() => {
+                panel.classList.remove("open");
+                done.style.display = "none";
+                menu.style.display = "block";
+            }, 2500);
+        } catch (_) {
+            msg.textContent = "Could not send - please try again.";
+            msg.className = "status-msg err";
+        }
     });
 }
 </script>

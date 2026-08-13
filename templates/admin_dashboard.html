@@ -38,6 +38,20 @@
     </div>
     <a class="btn ghost" href="/{{ '?account=' + account.slug }}" target="_blank" rel="noopener" style="text-decoration:none">Open your agent</a>
 </div>
+
+<h2 class="section">Share your agent</h2>
+<div class="panel" style="margin-bottom:24px">
+    <p class="hint" style="margin:0 0 6px">Direct link - share this anywhere:</p>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+        <input type="text" id="direct-link" readonly value="{{ direct_link }}" style="flex:1">
+        <button type="button" class="copy-btn" data-target="direct-link">Copy</button>
+    </div>
+    <p class="hint" style="margin:0 0 6px">Embed code - paste this before <code>&lt;/body&gt;</code> on your website:</p>
+    <div style="display:flex;gap:8px">
+        <textarea id="embed-snippet" readonly style="flex:1;font-family:monospace;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:9px 11px;min-height:60px">{{ embed_snippet }}</textarea>
+        <button type="button" class="copy-btn" data-target="embed-snippet" style="align-self:flex-start">Copy</button>
+    </div>
+</div>
 {% endif %}
 <h2 class="section">Usage</h2>
 <div class="cards">
@@ -139,6 +153,20 @@
 
 {% block script_extra %}
 <script>
+document.querySelectorAll(".copy-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+        const field = document.getElementById(btn.dataset.target);
+        try {
+            await navigator.clipboard.writeText(field.value);
+            btn.textContent = "Copied!";
+        } catch (_) {
+            field.select();
+            btn.textContent = "Select & copy";
+        }
+        setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+    });
+});
+
 const copyLinkBtn = document.getElementById("copy-link");
 if (copyLinkBtn) copyLinkBtn.addEventListener("click", async () => {
     const input = document.getElementById("owner-link");

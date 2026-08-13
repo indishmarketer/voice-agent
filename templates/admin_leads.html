@@ -4,12 +4,8 @@
 {% block page_sub %}View and manage leads captured by your voice agent.{% endblock %}
 
 {% block topbar_right %}
-{% if sheets_url %}
-<a class="btn ghost" href="{{ sheets_url }}" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center;gap:7px">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
-    Open Spreadsheet
-</a>
-{% endif %}
+<button type="button" id="download-selected" class="ghost" disabled>Download selected CSV</button>
+<button type="button" id="download-all" class="ghost">Download all CSV</button>
 <button type="button" id="delete-selected" class="ghost" disabled>Delete selected</button>
 <button type="button" id="delete-all" class="danger">Delete all</button>
 {% endblock %}
@@ -20,7 +16,7 @@
     <tr>
         <th class="check-cell"><input type="checkbox" id="select-all"></th>
         <th>When (UTC)</th><th>Name</th><th>Email</th><th>Phone</th>
-        <th>Company</th><th>Problem</th><th>Interest</th><th>Sheet</th>
+        <th>Company</th><th>Problem</th><th>Interest</th>
     </tr>
     {% for lead in leads %}
     <tr class="lead-row" data-id="{{ lead.id }}">
@@ -32,13 +28,9 @@
         <td>{{ lead.company or '—' }}</td>
         <td class="wrap-cell">{{ lead.problem or '—' }}</td>
         <td>{{ lead.interest or '—' }}</td>
-        <td>
-            {% if lead.synced %}<span class="pill yes">synced</span>
-            {% else %}<span class="pill no">local</span>{% endif %}
-        </td>
     </tr>
     {% else %}
-    <tr><td colspan="9" class="empty">No leads captured yet.</td></tr>
+    <tr><td colspan="8" class="empty">No leads captured yet.</td></tr>
     {% endfor %}
 </table>
 </div>
@@ -52,17 +44,28 @@ const withToken = (path) => path + "?token=" + encodeURIComponent(TOKEN);
 const selectAll = document.getElementById("select-all");
 const checks = () => [...document.querySelectorAll(".lead-check")];
 const deleteSelectedBtn = document.getElementById("delete-selected");
+const downloadSelectedBtn = document.getElementById("download-selected");
 
 function refreshSelection() {
     const boxes = checks();
     const anyChecked = boxes.some((b) => b.checked);
     deleteSelectedBtn.disabled = !anyChecked;
+    downloadSelectedBtn.disabled = !anyChecked;
     boxes.forEach((b) => b.closest("tr").classList.toggle("selected", b.checked));
     if (boxes.length) {
         selectAll.checked = boxes.every((b) => b.checked);
         selectAll.indeterminate = anyChecked && !selectAll.checked;
     }
 }
+
+document.getElementById("download-all").addEventListener("click", () => {
+    location.href = withToken("/admin/leads/export");
+});
+downloadSelectedBtn.addEventListener("click", () => {
+    const ids = checks().filter((b) => b.checked).map((b) => b.value);
+    if (!ids.length) return;
+    location.href = withToken("/admin/leads/export") + "&ids=" + ids.join(",");
+});
 
 selectAll.addEventListener("change", () => {
     checks().forEach((b) => { b.checked = selectAll.checked; });
@@ -92,8 +95,8 @@ deleteSelectedBtn.addEventListener("click", async () => {
 document.getElementById("delete-all").addEventListener("click", async () => {
     const total = {{ leads | length }};
     if (!total) return;
-    if (!confirm(`Delete ALL ${total} lead(s) from the database? This cannot be undone. `
-               + "Anything already synced to the spreadsheet is unaffected there.")) return;
+    if (!confirm(`Delete ALL ${total} lead(s) from the database? This cannot be undone - `
+               + "download a CSV first if you want a copy.")) return;
     if (await deleteLeads({ all: true })) location.reload();
     else alert("Could not delete - please try again.");
 });

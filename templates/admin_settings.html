@@ -12,6 +12,7 @@
         dashboard's own look, only the public call app.
     </p>
     <form id="branding-form">
+        {% if is_super %}
         <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;margin-bottom:16px">
             <img id="logo-preview" src="{{ asset('img/logo.png') }}" alt="Current logo"
                  style="width:64px;height:64px;border-radius:16px;object-fit:cover;border:1px solid var(--border)">
@@ -20,6 +21,7 @@
                 <input type="file" name="logo" id="logo-input" accept="image/*">
             </div>
         </div>
+        {% endif %}
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px;margin-bottom:16px">
             <div>
                 <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Brand name</label>
@@ -63,12 +65,14 @@
     </div>
 </div>
 
+{% if is_super %}
 <p class="hint" style="margin-top:18px">
     Looking for the AI models, provider API keys, or Turnstile? Those moved
     to <a href="/admin/integrations{{ ('?token=' + token) if token else '' }}">Integrations</a> -
     this page is for the things you built, that page is for the outside
     services you depend on.
 </p>
+{% endif %}
 {% endblock %}
 
 {% block script_extra %}
@@ -107,11 +111,13 @@ const brandingOut = document.getElementById("branding-out");
 const logoInput = document.getElementById("logo-input");
 const logoPreview = document.getElementById("logo-preview");
 
-logoInput.addEventListener("change", () => {
-    const file = logoInput.files[0];
-    if (!file) return;
-    logoPreview.src = URL.createObjectURL(file);
-});
+if (logoInput) {
+    logoInput.addEventListener("change", () => {
+        const file = logoInput.files[0];
+        if (!file) return;
+        logoPreview.src = URL.createObjectURL(file);
+    });
+}
 
 document.getElementById("branding-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -123,7 +129,7 @@ document.getElementById("branding-form").addEventListener("submit", async (event
     if (res.ok) {
         brandingOut.textContent = "Saved. Takes effect immediately.";
         brandingOut.className = "status-msg";
-        logoInput.value = "";
+        if (logoInput) logoInput.value = "";
     } else {
         brandingOut.textContent = data.error || "Could not save - please try again.";
         brandingOut.className = "status-msg err";

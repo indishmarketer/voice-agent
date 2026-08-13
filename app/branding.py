@@ -7,6 +7,7 @@ app's own branding; the admin dashboard's own "Voice Agent" identity is
 intentionally left hardcoded, see templates/admin_base.html.
 """
 import io
+from typing import Optional
 
 from . import config, store
 
@@ -22,13 +23,30 @@ FAVICON_PATH = config.BASE_DIR / "static" / "img" / "favicon.png"
 APPLE_TOUCH_ICON_PATH = config.BASE_DIR / "static" / "img" / "apple-touch-icon.png"
 
 
-def get_branding() -> dict[str, str]:
-    """The current effective branding - saved overrides, or seed defaults."""
+def get_branding(account_id: Optional[int] = None) -> dict[str, str]:
+    """The current effective branding - saved overrides, or seed defaults.
+
+    A sub-account with nothing customised yet must NOT default to the main
+    account's brand/agent name - that was the "why does my agent introduce
+    itself as Indish Marketer" bug. Its seed defaults are derived from its
+    own business_name instead, so a fresh account already sounds like it
+    belongs to that business before anyone edits a single setting.
+    """
+    if account_id is None:
+        default_brand = config.BRAND_NAME
+        default_agent = config.AGENT_NAME
+        default_greeting = config.GREETING
+    else:
+        account = store.get_account(account_id)
+        business = (account["business_name"] if account else "") or "your business"
+        default_brand = business
+        default_agent = f"{business} Assistant"
+        default_greeting = f"Hi, welcome to {business}. How can I help you today?"
     return {
-        "brand_name": store.get_setting(SETTINGS_KEY_BRAND_NAME, config.BRAND_NAME),
-        "tagline": store.get_setting(SETTINGS_KEY_TAGLINE, DEFAULT_TAGLINE),
-        "agent_name": store.get_setting(SETTINGS_KEY_AGENT_NAME, config.AGENT_NAME),
-        "greeting": store.get_setting(SETTINGS_KEY_GREETING, config.GREETING),
+        "brand_name": store.get_setting(SETTINGS_KEY_BRAND_NAME, default_brand, account_id),
+        "tagline": store.get_setting(SETTINGS_KEY_TAGLINE, DEFAULT_TAGLINE, account_id),
+        "agent_name": store.get_setting(SETTINGS_KEY_AGENT_NAME, default_agent, account_id),
+        "greeting": store.get_setting(SETTINGS_KEY_GREETING, default_greeting, account_id),
     }
 
 

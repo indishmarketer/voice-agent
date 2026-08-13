@@ -1,0 +1,90 @@
+{% extends "admin_base.html" %}
+{% block title %}Support — Voice Agent Admin{% endblock %}
+{% block page_title %}Support{% endblock %}
+{% block page_sub %}Bug reports and feedback from sub-account owners.{% endblock %}
+
+{% block content %}
+<h2 class="section">Call booking link</h2>
+<div class="panel" style="margin-bottom:24px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <p class="hint" style="margin:0;flex:1;min-width:220px">
+        Shown as "Book a 1:1 call" in sub-account admins' support widget. Any
+        scheduling link works (Cal.com, Google Calendar, etc.).
+    </p>
+    <input type="text" id="calendar-link" value="{{ calendar_link_value }}"
+           placeholder="https://cal.com/you/30min" style="flex:1;min-width:240px">
+    <button type="button" id="save-calendar-link">Save</button>
+    <span id="calendar-msg" class="status-msg"></span>
+</div>
+
+<h2 class="section">Reports</h2>
+<div class="scroll">
+<table>
+    <tr>
+        <th>When (UTC)</th><th>Account</th><th>Type</th><th>Message</th><th>Contact</th><th>Status</th><th></th>
+    </tr>
+    {% for r in reports %}
+    <tr data-id="{{ r.id }}">
+        <td class="mono">{{ r.when }}</td>
+        <td>{{ r.business_name }}</td>
+        <td>
+            {% if r.kind == 'bug' %}<span class="pill warn">bug</span>
+            {% else %}<span class="pill no">feedback</span>{% endif %}
+        </td>
+        <td class="wrap-cell">{{ r.message }}</td>
+        <td>{{ r.contact_email or '—' }}</td>
+        <td>
+            {% if r.handled %}<span class="pill yes">handled</span>
+            {% else %}<span class="pill warn">new</span>{% endif %}
+        </td>
+        <td>
+            {% if not r.handled %}
+            <button type="button" class="small ghost mark-handled-btn">Mark handled</button>
+            {% endif %}
+            {% if r.contact_email %}
+            <a class="btn small ghost" href="mailto:{{ r.contact_email }}" style="text-decoration:none">Email</a>
+            {% endif %}
+        </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="empty">No reports yet.</td></tr>
+    {% endfor %}
+</table>
+</div>
+{% endblock %}
+
+{% block script_extra %}
+<script>
+const TOKEN = {{ token | tojson }};
+const withToken = (path) => path + "?token=" + encodeURIComponent(TOKEN);
+
+document.getElementById("save-calendar-link").addEventListener("click", async () => {
+    const msg = document.getElementById("calendar-msg");
+    msg.textContent = "";
+    try {
+        const res = await fetch(withToken("/admin/support/calendar-link"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ calendar_link: document.getElementById("calendar-link").value }),
+        });
+        if (!res.ok) throw new Error();
+        msg.textContent = "Saved";
+        setTimeout(() => { msg.textContent = ""; }, 2000);
+    } catch (_) {
+        msg.textContent = "Could not save.";
+        msg.className = "status-msg err";
+    }
+});
+
+document.querySelectorAll(".mark-handled-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+        const id = Number(btn.closest("tr").dataset.id);
+        const res = await fetch(withToken("/admin/support/handled"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id }),
+        });
+        if (res.ok) location.reload();
+    });
+});
+</script>
+{% endblock %}

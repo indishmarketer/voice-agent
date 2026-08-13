@@ -103,6 +103,19 @@ CREATE TABLE IF NOT EXISTS accounts (
     approved_at          REAL
 );
 CREATE INDEX IF NOT EXISTS idx_accounts_email ON accounts(email);
+
+-- Bug reports / feedback / call-booking clicks from the support widget shown
+-- to sub-account admins. account_id NULL would mean the main account, though
+-- in practice the widget is only ever shown to sub-accounts.
+CREATE TABLE IF NOT EXISTS support_reports (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id    INTEGER,
+    kind          TEXT NOT NULL,
+    message       TEXT,
+    contact_email TEXT,
+    handled       INTEGER NOT NULL DEFAULT 0,
+    created_at    REAL NOT NULL
+);
 """
 
 
@@ -375,6 +388,28 @@ def list_leads(limit: int = 100, account_id: Optional[int] = None) -> list[dict[
     return [dict(r) for r in rows]
 
 
+def list_leads_for_export(account_id: Optional[int] = None,
+                          ids: Optional[list[int]] = None) -> list[dict[str, Any]]:
+    """No LIMIT, unlike list_leads (which caps the admin page's table) - a
+    CSV export should never silently truncate."""
+    clause, extra = _account_clause(account_id)
+    if ids:
+        placeholders = ",".join("?" * len(ids))
+        rows = _query(
+            f"SELECT id, name, email, phone, company, problem, interest, "
+            f"qualified, created_at FROM leads WHERE {clause} AND id IN ({placeholders}) "
+            f"ORDER BY id DESC",
+            (*extra, *ids),
+        )
+    else:
+        rows = _query(
+            f"SELECT id, name, email, phone, company, problem, interest, "
+            f"qualified, created_at FROM leads WHERE {clause} ORDER BY id DESC",
+            extra,
+        )
+    return [dict(r) for r in rows]
+
+
 def _day_totals(day: str, account_id: Optional[int] = None) -> dict[str, float]:
     clause, extra = _account_clause(account_id)
     row = _query(
@@ -436,8 +471,17 @@ def _pct_change(today_val: float, prior_val: float) -> Optional[int]:
 
 # --- Settings (admin-editable, no redeploy needed) --------------------------
 
-def get_setting(key: str, default: str = "") -> str:
-    rows = _query("SELECT value FROM settings WHERE key = ?", (key,))
+def _scoped_key(key: str, account_id: Optional[int]) -> str:
+    """None (the main account) keeps the bare key it always used, so every
+    existing row from before sub-accounts existed keeps resolving exactly as
+    it did. Each sub-account gets its own namespaced row instead of a new
+    column, so branding/behaviour-rules stay a plain key/value table."""
+    return key if account_id is None else f"acct{account_id}:{key}"
+
+
+def get_setting(key: str, default: str = "", account_id: Optional[int] = None) -> str:
+    rows = _query("SELECT value FROM settings WHERE key = ?",
+                 (_scoped_key(key, account_id),))
     return rows[0]["value"] if rows else default
 
 
@@ -450,11 +494,11 @@ def get_settings(keys: list[str]) -> dict[str, str]:
     return {r["key"]: r["value"] for r in rows}
 
 
-def set_setting(key: str, value: str) -> None:
+def set_setting(key: str, value: str, account_id: Optional[int] = None) -> None:
     _exec(
         "INSERT INTO settings (key, value) VALUES (?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (key, value),
+        (_scoped_key(key, account_id), value),
     )
 
 
@@ -588,3 +632,30 @@ def mark_limit_email_sent(account_id: int) -> None:
         "UPDATE accounts SET last_limit_email_at = ? WHERE id = ?",
         (time.time(), account_id),
     )
+
+
+# --- Support widget (bug reports / feedback) --------------------------------
+
+def create_support_report(account_id: Optional[int], kind: str, message: str,
+                          contact_email: str) -> int:
+    cur = _exec(
+        "INSERT INTO support_reports (account_id, kind, message, contact_email, "
+        "created_at) VALUES (?, ?, ?, ?, ?)",
+        (account_id, kind, message, contact_email, time.time()),
+    )
+    return int(cur.lastrowid or 0)
+
+
+def list_support_reports(handled: Optional[bool] = None) -> list[dict[str, Any]]:
+    if handled is None:
+        rows = _query("SELECT * FROM support_reports ORDER BY id DESC")
+    else:
+        rows = _query(
+            "SELECT * FROM support_reports WHERE handled = ? ORDER BY id DESC",
+            (1 if handled else 0,),
+        )
+    return [dict(r) for r in rows]
+
+
+def mark_report_handled(report_id: int) -> None:
+    _exec("UPDATE support_reports SET handled = 1 WHERE id = ?", (report_id,))

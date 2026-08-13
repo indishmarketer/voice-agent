@@ -11,7 +11,9 @@ Nothing waits for the full reply at any stage.
 """
 import asyncio
 import contextlib
+import csv
 import datetime
+import io
 import logging
 import re
 import secrets
@@ -154,7 +156,8 @@ async def _maybe_notify_limit(account: dict[str, Any], reason: str) -> None:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> Response:
     visitor_id, is_new = _visitor_id_from(request)
-    current_branding = branding.get_branding()
+    account = _resolve_account(request)
+    current_branding = branding.get_branding(account["id"] if account else None)
     response = templates.TemplateResponse(
         "index.html",
         {
@@ -349,8 +352,8 @@ async def _once(text: str) -> AsyncIterator[str]:
     yield text
 
 
-def _greeting_for(visitor: dict[str, Any]) -> str:
-    current_branding = branding.get_branding()
+def _greeting_for(visitor: dict[str, Any], account_id: Optional[int] = None) -> str:
+    current_branding = branding.get_branding(account_id)
     name = visitor.get("name")
     if visitor.get("session_count", 0) > 1 and name:
         return (f"Hi {name}, welcome back to {current_branding['brand_name']}. "
@@ -528,7 +531,7 @@ async def _bridge_if_slow(call: Call) -> None:
 
 
 async def _handle_greeting(call: Call) -> None:
-    text = _greeting_for(call.visitor)
+    text = _greeting_for(call.visitor, call.account_id)
     call.history.append({"role": "assistant", "content": text})
     store.add_turn(call.session_id, call.visitor_id, "assistant", text, call.account_id)
     await _speak(call, _once(text), announce=text)
@@ -910,6 +913,11 @@ KNOWLEDGE_TARGETS = {
 ADMIN_SESSION_COOKIE = "im_admin_session"
 ADMIN_SESSION_SECONDS = 30 * 24 * 3600
 
+# The owner's own booking link (Cal.com, Google Calendar, etc.), shown as
+# "Book a 1:1 call" in the support widget sub-account admins see. Global -
+# there is one owner to book time with, not one per sub-account.
+SETTINGS_KEY_CALENDAR_LINK = "calendar_link"
+
 
 def _admin_context_from_cookie(request: Request) -> Optional[dict[str, Any]]:
     """Resolves a magic-link session cookie to who is logged in and what
@@ -1013,6 +1021,7 @@ def _admin_base_context(request: Request, active_page: str,
         "owner_link": owner_link,
         "owner_email": email,
         "owner_initial": email[0].upper() if email else None,
+        "calendar_link": store.get_setting(SETTINGS_KEY_CALENDAR_LINK),
     }
 
 
@@ -1103,6 +1112,13 @@ async def admin_dashboard(request: Request,
                           admin: dict[str, Any] = Depends(_require_admin)) -> Response:
     ctx = _admin_base_context(request, "dashboard", admin)
     ctx["usage"] = store.usage_summary(admin["account_id"])
+    if not admin["is_super"] and admin.get("account"):
+        slug = admin["account"]["slug"]
+        base = f"{request.url.scheme}://{request.url.netloc}"
+        ctx.update({
+            "direct_link": f"{base}/?account={slug}",
+            "embed_snippet": f'<script src="{base}/embed.js" data-account="{slug}" async><' + '/script>',
+        })
     if admin["is_super"]:
         ctx.update({
             "active": security.active_count(),
@@ -1133,7 +1149,7 @@ async def admin_leads_page(request: Request,
         leads_out.append(lead)
 
     ctx = _admin_base_context(request, "leads", admin)
-    ctx.update({"leads": leads_out, "sheets_url": config.SHEETS_URL})
+    ctx["leads"] = leads_out
     return templates.TemplateResponse("admin_leads.html", ctx)
 
 
@@ -1183,19 +1199,19 @@ async def admin_integrations_page(request: Request,
 
 @app.get("/admin/settings", response_class=HTMLResponse)
 async def admin_settings_page(request: Request,
-                              admin: dict[str, Any] = Depends(_require_super)) -> Response:
+                              admin: dict[str, Any] = Depends(_require_admin)) -> Response:
     ctx = _admin_base_context(request, "settings", admin)
     ctx.update({
-        "agent_rules": prompts.active_behavior_rules(),
+        "agent_rules": prompts.active_behavior_rules(admin["account_id"]),
         "default_rules": prompts._default_behavior_rules(),
-        "branding": branding.get_branding(),
+        "branding": branding.get_branding(admin["account_id"]),
     })
     return templates.TemplateResponse("admin_settings.html", ctx)
 
 
 @app.post("/admin/settings")
 async def save_admin_settings(request: Request,
-                              _: dict[str, Any] = Depends(_require_super)) -> Response:
+                              admin: dict[str, Any] = Depends(_require_admin)) -> Response:
     body: dict[str, Any] = {}
     with contextlib.suppress(Exception):
         body = await request.json()
@@ -1207,8 +1223,9 @@ async def save_admin_settings(request: Request,
         return JSONResponse({"error": "That's too long - keep it under 8000 characters."},
                             status_code=400)
 
-    store.set_setting(prompts.SETTINGS_KEY_AGENT_RULES, rules.strip())
-    log.info("admin updated agent behaviour rules (%d chars)", len(rules))
+    store.set_setting(prompts.SETTINGS_KEY_AGENT_RULES, rules.strip(), admin["account_id"])
+    log.info("admin updated agent behaviour rules (%d chars, account=%s)",
+             len(rules), admin["account_id"])
     return JSONResponse({"ok": True})
 
 
@@ -1228,7 +1245,7 @@ async def save_branding(request: Request,
                         agent_name: str = Form(""),
                         greeting: str = Form(""),
                         logo: Optional[UploadFile] = File(None),
-                        _: dict[str, Any] = Depends(_require_super)) -> Response:
+                        admin: dict[str, Any] = Depends(_require_admin)) -> Response:
     for field_name, value in (("brand_name", brand_name), ("tagline", tagline),
                               ("agent_name", agent_name), ("greeting", greeting)):
         limit = BRANDING_TEXT_FIELDS[field_name][1]
@@ -1239,6 +1256,13 @@ async def save_branding(request: Request,
             )
 
     if logo is not None and logo.filename:
+        # The logo is one shared image file on disk, not a per-account
+        # setting - a sub-account uploading one would silently replace the
+        # main account's logo too, so this stays owner-only.
+        if not admin["is_super"]:
+            return JSONResponse(
+                {"error": "Only the main account can change the logo."}, status_code=403
+            )
         content = await logo.read()
         if len(content) > MAX_LOGO_BYTES:
             return JSONResponse({"error": "Logo image is too large (5MB max)."},
@@ -1254,10 +1278,10 @@ async def save_branding(request: Request,
                               ("agent_name", agent_name), ("greeting", greeting)):
         stripped = value.strip()
         if stripped:
-            store.set_setting(BRANDING_TEXT_FIELDS[field_name][0], stripped)
+            store.set_setting(BRANDING_TEXT_FIELDS[field_name][0], stripped, admin["account_id"])
 
-    log.info("admin updated branding")
-    return JSONResponse({"ok": True, "branding": branding.get_branding()})
+    log.info("admin updated branding (account=%s)", admin["account_id"])
+    return JSONResponse({"ok": True, "branding": branding.get_branding(admin["account_id"])})
 
 
 MODEL_SETTINGS_FIELDS = {
@@ -1376,6 +1400,37 @@ async def reload_knowledge(request: Request,
                            admin: dict[str, Any] = Depends(_require_admin)) -> Response:
     kb = knowledge.reload_kb(admin["account_id"])
     return JSONResponse({"ok": True, "kb": kb.stats()})
+
+
+@app.get("/admin/leads/export")
+async def export_leads_csv(request: Request, ids: str = "",
+                           admin: dict[str, Any] = Depends(_require_admin)) -> Response:
+    id_list: Optional[list[int]] = None
+    if ids:
+        try:
+            id_list = [int(i) for i in ids.split(",") if i.strip()]
+        except ValueError:
+            return JSONResponse({"error": "Invalid ids."}, status_code=400)
+
+    rows = store.list_leads_for_export(admin["account_id"], id_list)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["id", "name", "email", "phone", "company", "problem",
+                     "interest", "qualified", "created_at_utc"])
+    for row in rows:
+        writer.writerow([
+            row["id"], row["name"] or "", row["email"] or "", row["phone"] or "",
+            row["company"] or "", row["problem"] or "", row["interest"] or "",
+            "yes" if row["qualified"] else "no",
+            datetime.datetime.fromtimestamp(
+                row["created_at"], tz=datetime.timezone.utc
+            ).strftime("%Y-%m-%d %H:%M:%S"),
+        ])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=leads.csv"},
+    )
 
 
 @app.post("/admin/leads/delete")
@@ -1596,6 +1651,74 @@ async def admin_accounts_delete(request: Request,
         return JSONResponse({"error": "Missing account id."}, status_code=400)
     store.delete_account(account_id)
     log.info("account deleted: %s", account_id)
+    return JSONResponse({"ok": True})
+
+
+# --- Support widget (bug reports / feedback) -----------------------------
+
+@app.post("/admin/support/report")
+async def submit_support_report(request: Request,
+                                admin: dict[str, Any] = Depends(_require_admin)) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+
+    kind = (body.get("kind") or "").strip()
+    if kind not in ("bug", "feedback"):
+        return JSONResponse({"error": "Invalid report type."}, status_code=400)
+    message = (body.get("message") or "").strip()[:2000]
+    if not message:
+        return JSONResponse({"error": "Message is required."}, status_code=400)
+
+    contact_email = admin.get("email") or ""
+    report_id = store.create_support_report(admin["account_id"], kind, message, contact_email)
+    log.info("support report #%s (%s) from account=%s", report_id, kind, admin["account_id"])
+    return JSONResponse({"ok": True})
+
+
+@app.get("/admin/support", response_class=HTMLResponse)
+async def admin_support_page(request: Request,
+                             admin: dict[str, Any] = Depends(_require_super)) -> Response:
+    ctx = _admin_base_context(request, "support", admin)
+    reports_out = []
+    for report in store.list_support_reports():
+        report = dict(report)
+        account = store.get_account(report["account_id"]) if report["account_id"] else None
+        report["business_name"] = account["business_name"] if account else "Main account"
+        report["when"] = datetime.datetime.fromtimestamp(
+            report["created_at"], tz=datetime.timezone.utc
+        ).strftime("%b %d, %H:%M")
+        reports_out.append(report)
+    ctx.update({
+        "reports": reports_out,
+        "calendar_link_value": store.get_setting(SETTINGS_KEY_CALENDAR_LINK),
+    })
+    return templates.TemplateResponse("admin_support.html", ctx)
+
+
+@app.post("/admin/support/handled")
+async def mark_support_handled(request: Request,
+                               _: dict[str, Any] = Depends(_require_super)) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+    try:
+        report_id = int(body.get("id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Missing report id."}, status_code=400)
+    store.mark_report_handled(report_id)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/admin/support/calendar-link")
+async def save_calendar_link(request: Request,
+                             _: dict[str, Any] = Depends(_require_super)) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+    link = (body.get("calendar_link") or "").strip()[:300]
+    store.set_setting(SETTINGS_KEY_CALENDAR_LINK, link)
+    log.info("admin updated calendar link")
     return JSONResponse({"ok": True})
 
 

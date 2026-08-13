@@ -191,9 +191,10 @@ async def process_session(session_id: str, visitor_id: str,
     lead_id = store.save_lead(session_id, visitor_id, data, transcript, account_id)
     log.info("lead %s saved (email=%s, account=%s)", lead_id,
              bool(data.get("email")), account_id)
-
-    if await _push_to_sheet(session_id, visitor_id, data, summary, transcript):
-        store.mark_lead_synced(lead_id)
+    # Google Sheets sync (_push_to_sheet below) is retired in favour of CSV
+    # export from /admin/leads - kept in the file only because
+    # sheets-webhook.gs still references the same payload shape, not because
+    # anything here still calls it.
 
 
 async def _push_to_sheet(session_id: str, visitor_id: str, data: dict[str, Any],

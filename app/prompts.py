@@ -75,22 +75,26 @@ it again.
 To end a call, thank them and mention {config.WEBSITE_URL}."""
 
 
-def active_behavior_rules() -> str:
+def active_behavior_rules(account_id: Optional[int] = None) -> str:
     """What /admin/settings shows and edits - the current effective rules,
-    whether that is a saved override or the seed default."""
-    return store.get_setting(SETTINGS_KEY_AGENT_RULES) or _default_behavior_rules()
+    whether that is a saved override or the seed default. Every account
+    (main or sub) falls back to the exact same default text when it has not
+    customised its own rules yet, so a fresh sub-account still asks the
+    right questions and still collects contact details - only the wording
+    differs once an owner writes their own."""
+    return store.get_setting(SETTINGS_KEY_AGENT_RULES, "", account_id) or _default_behavior_rules()
 
 
 def build_system_prompt(user_text: str, visitor: Optional[dict[str, Any]] = None,
                         history_hint: str = "",
                         account_id: Optional[int] = None) -> str:
-    current_branding = branding.get_branding()
+    current_branding = branding.get_branding(account_id)
     fixed = FIXED_PREFIX_TEMPLATE.format(
         agent_name=current_branding["agent_name"],
         brand=current_branding["brand_name"],
         contact_marker=CONTACT_MARKER,
     )
-    parts = [fixed, active_behavior_rules()]
+    parts = [fixed, active_behavior_rules(account_id)]
 
     kb_context = knowledge.get_kb(account_id).context_for(user_text)
     if kb_context:
