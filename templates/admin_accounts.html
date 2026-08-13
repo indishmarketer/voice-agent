@@ -129,7 +129,7 @@ document.querySelectorAll(".approve-btn").forEach((btn) => {
 document.querySelectorAll(".reject-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
         const id = Number(btn.closest("tr").dataset.id);
-        if (!confirm("Reject this application?")) return;
+        if (!await confirmAction("Reject this application?", "Reject")) return;
         try {
             await postJson("/admin/accounts/reject", { id });
             location.reload();
@@ -143,7 +143,9 @@ document.querySelectorAll(".delete-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
         const row = btn.closest("tr");
         const id = Number(row.dataset.id);
-        if (!confirm("Delete this account permanently? This removes their leads, knowledge base and usage history too.")) return;
+        if (!await confirmAction("Delete this account permanently? This immediately and " +
+                                 "permanently removes their leads, knowledge base, and usage " +
+                                 "history from the server too - this cannot be undone.")) return;
         try {
             await postJson("/admin/accounts/delete", { id });
             location.reload();

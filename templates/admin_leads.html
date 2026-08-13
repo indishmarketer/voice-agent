@@ -87,7 +87,8 @@ async function deleteLeads(body) {
 deleteSelectedBtn.addEventListener("click", async () => {
     const ids = checks().filter((b) => b.checked).map((b) => Number(b.value));
     if (!ids.length) return;
-    if (!confirm(`Delete ${ids.length} lead(s)? This cannot be undone.`)) return;
+    if (!await confirmAction(`Delete ${ids.length} lead(s)? This permanently removes them ` +
+                             "from the server - this cannot be undone.")) return;
     if (await deleteLeads({ ids })) location.reload();
     else alert("Could not delete - please try again.");
 });
@@ -95,8 +96,9 @@ deleteSelectedBtn.addEventListener("click", async () => {
 document.getElementById("delete-all").addEventListener("click", async () => {
     const total = {{ leads | length }};
     if (!total) return;
-    if (!confirm(`Delete ALL ${total} lead(s) from the database? This cannot be undone - `
-               + "download a CSV first if you want a copy.")) return;
+    if (!await confirmAction(`Delete ALL ${total} lead(s) from the database? This ` +
+               "permanently removes them from the server - this cannot be undone. " +
+               "Download a CSV first if you want a copy.")) return;
     if (await deleteLeads({ all: true })) location.reload();
     else alert("Could not delete - please try again.");
 });

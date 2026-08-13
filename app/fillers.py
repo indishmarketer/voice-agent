@@ -47,88 +47,99 @@ BRIDGES = [
 
 PHRASES = ACKS + BRIDGES
 
-# Keyed by index into PHRASES, so a clip that fails to render never shifts the
-# others out of alignment with their phrase.
-_clips: dict[int, bytes] = {}
+# Keyed by (voice_id, index into PHRASES) - sub-accounts can pick a different
+# Fish Audio voice per account (see voices.py), so the acknowledgement clip
+# has to match whichever voice is about to speak the real reply, or the
+# switch mid-turn sounds broken. A clip that fails to render never shifts
+# the others out of alignment with their phrase.
+_clips: dict[tuple[str, int], bytes] = {}
 _warming = False
 
 
-def _cache_dir() -> Path:
+def _cache_dir(voice_id: str) -> Path:
     # Key the cache on the phrases, voice and sample rate. Editing any of them
     # produces a new directory, so a stale clip can never be served under an
     # index whose phrase has changed.
     fingerprint = hashlib.sha1(
-        ("|".join(PHRASES) + integrations.fish_model_id() +
-         str(config.FISH_SAMPLE_RATE)).encode()
+        ("|".join(PHRASES) + voice_id + str(config.FISH_SAMPLE_RATE)).encode()
     ).hexdigest()[:10]
     path = config.DATA_DIR / "fillers" / fingerprint
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def _cache_path(index: int) -> Path:
-    return _cache_dir() / f"{index:02d}.pcm"
+def _cache_path(voice_id: str, index: int) -> Path:
+    return _cache_dir(voice_id) / f"{index:02d}.pcm"
 
 
-def load_cached() -> int:
-    """Load any clips already on disk. Returns how many were found."""
+def load_cached(voice_ids: list[str]) -> int:
+    """Load any clips already on disk, for every voice given. Returns how
+    many were found in total."""
     _clips.clear()
-    for index in range(len(PHRASES)):
-        path = _cache_path(index)
-        if path.exists() and path.stat().st_size > 1000:
-            _clips[index] = path.read_bytes()
+    for voice_id in voice_ids:
+        for index in range(len(PHRASES)):
+            path = _cache_path(voice_id, index)
+            if path.exists() and path.stat().st_size > 1000:
+                _clips[(voice_id, index)] = path.read_bytes()
     return len(_clips)
 
 
-async def warm() -> None:
-    """Render any missing clips. Safe to call on startup; never blocks a call."""
+async def warm(voice_ids: list[str]) -> None:
+    """Render any missing clips, for every voice given. Safe to call on
+    startup; never blocks a call."""
     global _warming
     if _warming:
         return
     _warming = True
     try:
-        if load_cached() == len(PHRASES):
+        wanted = len(voice_ids) * len(PHRASES)
+        if load_cached(voice_ids) == wanted:
             log.info("filler clips loaded from cache (%d)", len(_clips))
             return
         if not integrations.fish_api_key():
             return
 
-        for index, phrase in enumerate(PHRASES):
-            if index in _clips:
-                continue
-            try:
-                pcm = await tts.synthesize(phrase)
-            except Exception as exc:
-                log.warning("could not render filler %r: %s", phrase, exc)
-                continue
-            if len(pcm) > 1000:
-                _cache_path(index).write_bytes(pcm)
-                _clips[index] = pcm
-            await asyncio.sleep(0.2)  # be gentle with the free tier
+        for voice_id in voice_ids:
+            for index, phrase in enumerate(PHRASES):
+                if (voice_id, index) in _clips:
+                    continue
+                try:
+                    pcm = await tts.synthesize(phrase, voice_id=voice_id)
+                except Exception as exc:
+                    log.warning("could not render filler %r (voice %s): %s",
+                               phrase, voice_id, exc)
+                    continue
+                if len(pcm) > 1000:
+                    _cache_path(voice_id, index).write_bytes(pcm)
+                    _clips[(voice_id, index)] = pcm
+                await asyncio.sleep(0.2)  # be gentle with the free tier
 
-        log.info("filler clips ready (%d/%d)", len(_clips), len(PHRASES))
+        log.info("filler clips ready (%d/%d)", len(_clips), wanted)
     finally:
         _warming = False
 
 
-def _pick_from(names: list[str]) -> bytes:
-    """A random clip from one tier, falling back to any clip we have."""
-    indexes = [i for i, phrase in enumerate(PHRASES)
-               if phrase in names and i in _clips]
-    if indexes:
-        return _clips[random.choice(indexes)]
-    return random.choice(list(_clips.values())) if _clips else b""
+def _pick_from(names: list[str], voice_id: str, fallback_voice_id: str) -> bytes:
+    """A random clip from one tier in this voice, falling back to the
+    default voice's clips (better than dead air) if this one has none yet."""
+    for vid in (voice_id, fallback_voice_id):
+        indexes = [i for i, phrase in enumerate(PHRASES)
+                  if phrase in names and (vid, i) in _clips]
+        if indexes:
+            return _clips[(vid, random.choice(indexes))]
+    any_clips = list(_clips.values())
+    return random.choice(any_clips) if any_clips else b""
 
 
-def ack() -> bytes:
+def ack(voice_id: str, fallback_voice_id: str) -> bytes:
     """Short acknowledgement, played immediately."""
-    return _pick_from(ACKS)
+    return _pick_from(ACKS, voice_id, fallback_voice_id)
 
 
-def bridge() -> bytes:
+def bridge(voice_id: str, fallback_voice_id: str) -> bytes:
     """Longer clip, played only if the model is still thinking."""
-    return _pick_from(BRIDGES)
+    return _pick_from(BRIDGES, voice_id, fallback_voice_id)
 
 
-def ready() -> bool:
-    return bool(_clips)
+def ready(voice_id: str, fallback_voice_id: str) -> bool:
+    return any(vid == voice_id or vid == fallback_voice_id for vid, _ in _clips)

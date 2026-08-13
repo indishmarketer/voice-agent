@@ -55,12 +55,12 @@
             font-weight: 600; margin-bottom: 18px;
         }
         label { display: block; font-size: 13px; font-weight: 500; margin: 14px 0 6px; }
-        input, textarea {
+        input, textarea, select {
             width: 100%; font-family: inherit; font-size: 14px; color: var(--text-main);
             background: var(--bg); border: 1px solid var(--border);
             border-radius: 9px; padding: 10px 12px; outline: none;
         }
-        input:focus, textarea:focus { border-color: var(--primary); }
+        input:focus, textarea:focus, select:focus { border-color: var(--primary); }
         textarea { resize: vertical; min-height: 70px; }
         button {
             width: 100%; margin-top: 22px; font-family: inherit;
@@ -106,6 +106,17 @@
                 <input id="website" name="website" type="text" maxlength="200"
                        placeholder="https://yourbusiness.com">
 
+                <label for="country">Country</label>
+                <select id="country" name="country" required>
+                    <option value="" disabled selected>Select your country</option>
+                    <option value="India">India</option>
+                    <option value="United States">United States</option>
+                    <option value="United Kingdom">United Kingdom</option>
+                    <option value="Australia">Australia</option>
+                    <option value="Canada">Canada</option>
+                    <option value="Other">Other</option>
+                </select>
+
                 <label for="note">What would you use it for?</label>
                 <textarea id="note" name="note" maxlength="1000"
                           placeholder="e.g. answering customer questions on our site, capturing leads..."></textarea>
@@ -141,6 +152,7 @@
                     body: JSON.stringify({
                         business_name: document.getElementById("business_name").value,
                         email: document.getElementById("email").value,
+                        country: document.getElementById("country").value,
                         website: document.getElementById("website").value,
                         note: document.getElementById("note").value,
                     }),

@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     website              TEXT,
     email                TEXT NOT NULL,
     note                 TEXT,
+    country              TEXT,
     status               TEXT NOT NULL DEFAULT 'pending',
     plan_type            TEXT NOT NULL DEFAULT 'trial',
     daily_minutes_limit  INTEGER NOT NULL DEFAULT 20,
@@ -140,6 +141,11 @@ def init() -> None:
             cols = {r["name"] for r in _conn.execute(f"PRAGMA table_info({table})")}
             if "account_id" not in cols:
                 _conn.execute(f"ALTER TABLE {table} ADD COLUMN account_id INTEGER")
+        # accounts predates the "country" field used to pick a default voice
+        # preset at application time.
+        account_cols = {r["name"] for r in _conn.execute("PRAGMA table_info(accounts)")}
+        if "country" not in account_cols:
+            _conn.execute("ALTER TABLE accounts ADD COLUMN country TEXT")
         _conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sessions_account_day "
             "ON sessions(account_id, day)"
@@ -535,13 +541,15 @@ _SLUG_RE_HINT = "lowercase letters, numbers and hyphens only"
 
 
 def create_account_application(slug: str, business_name: str, email: str,
-                                website: str = "", note: str = "") -> Optional[int]:
+                                website: str = "", note: str = "",
+                                country: str = "") -> Optional[int]:
     """Returns the new row's id, or None if the slug is already taken."""
     try:
         cur = _exec(
             "INSERT INTO accounts (slug, business_name, website, email, note, "
-            "status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
-            (slug, business_name, website or None, email, note or None, time.time()),
+            "country, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+            (slug, business_name, website or None, email, note or None,
+             country or None, time.time()),
         )
     except sqlite3.IntegrityError:
         return None

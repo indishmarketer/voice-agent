@@ -31,7 +31,10 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import branding, config, fillers, integrations, knowledge, leads, llm, mailer, prompts, security, stt, store, tts
+from . import (
+    branding, config, fillers, integrations, knowledge, leads, llm, mailer,
+    prompts, security, stt, store, tts, voices,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,10 +88,11 @@ async def _startup() -> None:
     log.info("knowledge base: %s", default_kb.stats())
     log.info("approved sub-accounts: %d/%d", store.count_approved_accounts(),
              config.MAX_ACCOUNTS)
-    fillers.load_cached()
+    voice_ids = voices.all_voice_ids(integrations.fish_model_id())
+    fillers.load_cached(voice_ids)
     if config.ENABLE_FILLERS and not missing:
         # Rendered in the background so the container reports healthy at once.
-        asyncio.create_task(fillers.warm())
+        asyncio.create_task(fillers.warm(voice_ids))
 
 
 # --- Visitor identity -------------------------------------------------------
@@ -320,6 +324,11 @@ class Call:
         self.session_id = session_id
         self.visitor_id = visitor_id
         self.account_id = account_id
+        # Resolved once here rather than looked up per-turn: None (a
+        # sub-account on the "Indian English (Male)" preset, or the main
+        # account) means "the owner's own configured voice", so this is
+        # always a concrete Fish Audio id from here on.
+        self.voice_id = voices.account_fish_model_id(account_id) or integrations.fish_model_id()
         self.started = time.monotonic()
         self.history: list[dict[str, str]] = []
         self.turn_count = 0
@@ -564,7 +573,7 @@ async def _bridge_if_slow(call: Call) -> None:
     except asyncio.TimeoutError:
         if call.cancel.is_set():
             return
-        clip = fillers.bridge()
+        clip = fillers.bridge(call.voice_id, integrations.fish_model_id())
         if clip:
             await call.send_audio(clip, real=False)
     except asyncio.CancelledError:
@@ -618,9 +627,9 @@ async def _respond_with_llm(call: Call, text: str) -> None:
     # milliseconds while the model is still thinking, and the real answer is
     # queued straight behind it by the browser's audio scheduler.
     bridge_task: Optional[asyncio.Task] = None
-    if config.ENABLE_FILLERS and fillers.ready():
+    if config.ENABLE_FILLERS and fillers.ready(call.voice_id, integrations.fish_model_id()):
         call.audio_started.clear()
-        clip = fillers.ack()
+        clip = fillers.ack(call.voice_id, integrations.fish_model_id())
         if clip:
             await call.send_json({"type": "agent_start"})
             await call.send_audio(clip, real=False)
@@ -910,7 +919,8 @@ async def _speak(call: Call, clauses: AsyncIterator[str],
             yield clause
 
     async def run() -> str:
-        return await tts.speak(relay(clauses), call.send_audio, call.cancel)
+        return await tts.speak(relay(clauses), call.send_audio, call.cancel,
+                               voice_id=call.voice_id)
 
     task = asyncio.create_task(run())
     call.speaking = task
@@ -1248,7 +1258,34 @@ async def admin_settings_page(request: Request,
         "branding": branding.get_branding(admin["account_id"]),
         "logo_url": branding.logo_url(admin["account_id"], "logo"),
     })
+    if admin["account_id"] is not None:
+        ctx.update({
+            "voice_presets": [
+                {"key": key, "label": voices.VOICE_PRESETS[key]["label"]}
+                for key in voices.VOICE_PRESET_ORDER
+            ],
+            "current_voice_preset": voices.account_voice_preset(admin["account_id"]),
+        })
     return templates.TemplateResponse("admin_settings.html", ctx)
+
+
+@app.post("/admin/settings/voice")
+async def save_voice_preset(request: Request,
+                            admin: dict[str, Any] = Depends(_require_admin)) -> Response:
+    if admin["account_id"] is None:
+        return JSONResponse(
+            {"error": "The main account's voice is set from Integrations."},
+            status_code=400,
+        )
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+    preset = (body.get("voice_preset") or "").strip()
+    if preset not in voices.VOICE_PRESETS:
+        return JSONResponse({"error": "Unknown voice."}, status_code=400)
+    store.set_setting(voices.SETTINGS_KEY_VOICE_PRESET, preset, admin["account_id"])
+    log.info("account %s voice preset set to %s", admin["account_id"], preset)
+    return JSONResponse({"ok": True})
 
 
 @app.post("/admin/settings")
@@ -1530,6 +1567,7 @@ async def apply_submit(request: Request) -> Response:
     email = (body.get("email") or "").strip().lower()[:200]
     website = (body.get("website") or "").strip()[:200]
     note = (body.get("note") or "").strip()[:1000]
+    country = (body.get("country") or "").strip()[:80]
 
     if not business_name or not email or "@" not in email:
         return JSONResponse(
@@ -1551,7 +1589,8 @@ async def apply_submit(request: Request) -> Response:
         return JSONResponse({"error": "Could not allocate a slug. Try a different name."},
                             status_code=500)
 
-    account_id = store.create_account_application(slug, business_name, email, website, note)
+    account_id = store.create_account_application(slug, business_name, email, website,
+                                                   note, country)
     if account_id is None:
         return JSONResponse({"error": "Something went wrong. Please try again."},
                             status_code=500)

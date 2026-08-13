@@ -152,14 +152,14 @@
         }
 
         .icon-btn {
-            width: 38px; height: 38px; border-radius: 10px;
+            width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0;
             border: 1px solid var(--border); background: var(--panel);
             color: var(--text-main); display: flex; align-items: center; justify-content: center;
             cursor: pointer; box-shadow: var(--shadow);
             transition: background-color .12s ease;
         }
         .icon-btn:hover { background: var(--hover-bg); }
-        .icon-btn svg { width: 17px; height: 17px; }
+        .icon-btn svg { width: 22px; height: 22px; }
 
         h2.section {
             font-size: 12.5px; text-transform: uppercase; letter-spacing: .8px;
@@ -330,6 +330,17 @@
     </main>
 </div>
 
+<div id="confirm-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px">
+    <div class="panel" style="max-width:400px;width:100%">
+        <p id="confirm-modal-title" style="margin:0 0 8px;font-weight:600;font-size:15px">Are you sure?</p>
+        <p id="confirm-modal-body" style="margin:0 0 20px;color:var(--text-muted);font-size:13.5px"></p>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button type="button" class="ghost" id="confirm-modal-cancel">Cancel</button>
+            <button type="button" class="danger" id="confirm-modal-ok">Delete</button>
+        </div>
+    </div>
+</div>
+
 {% if not is_super %}
 <div id="support-widget">
     <button type="button" id="support-fab" aria-label="Support">
@@ -385,6 +396,34 @@ const SUN_ICON = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/
     + 'M2 12h2.5M19.5 12H22M4.22 19.78L6 18M18 6l1.78-1.78"/></g></svg>';
 const MOON_ICON = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
     + '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" fill="currentColor"/></svg>';
+
+// A themed replacement for window.confirm() - browser-native confirm()
+// dialogs look out of place in a real product and cannot be styled.
+// Usage: if (await confirmAction("Delete this lead? This cannot be undone.")) { ... }
+function confirmAction(message, okLabel) {
+    const modal = document.getElementById("confirm-modal");
+    const body = document.getElementById("confirm-modal-body");
+    const okBtn = document.getElementById("confirm-modal-ok");
+    const cancelBtn = document.getElementById("confirm-modal-cancel");
+    body.textContent = message;
+    okBtn.textContent = okLabel || "Delete";
+    modal.style.display = "flex";
+    return new Promise((resolve) => {
+        function cleanup(result) {
+            modal.style.display = "none";
+            okBtn.removeEventListener("click", onOk);
+            cancelBtn.removeEventListener("click", onCancel);
+            modal.removeEventListener("click", onBackdrop);
+            resolve(result);
+        }
+        function onOk() { cleanup(true); }
+        function onCancel() { cleanup(false); }
+        function onBackdrop(e) { if (e.target === modal) cleanup(false); }
+        okBtn.addEventListener("click", onOk);
+        cancelBtn.addEventListener("click", onCancel);
+        modal.addEventListener("click", onBackdrop);
+    });
+}
 
 function systemPrefersDark() {
     return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
