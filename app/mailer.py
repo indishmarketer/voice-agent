@@ -11,20 +11,15 @@ from . import config
 BREVO_SEND_URL = "https://api.brevo.com/v3/smtp/email"
 
 
-async def send_login_link(to_email: str, link: str) -> None:
+async def _send(to_email: str, subject: str, html: str) -> None:
     if not config.BREVO_API_KEY or not config.BREVO_SENDER_EMAIL:
         raise RuntimeError("Brevo is not configured (BREVO_API_KEY / BREVO_SENDER_EMAIL)")
 
     payload = {
         "sender": {"name": config.BREVO_SENDER_NAME, "email": config.BREVO_SENDER_EMAIL},
         "to": [{"email": to_email}],
-        "subject": f"Sign in to {config.BRAND_NAME} admin",
-        "htmlContent": (
-            "<p>Click below to sign in to the admin dashboard. This link "
-            "works once and expires in 15 minutes.</p>"
-            f'<p><a href="{link}">{link}</a></p>'
-            "<p>If you did not request this, you can ignore this email.</p>"
-        ),
+        "subject": subject,
+        "htmlContent": html,
     }
     async with httpx.AsyncClient(timeout=10) as client:
         response = await client.post(
@@ -37,3 +32,40 @@ async def send_login_link(to_email: str, link: str) -> None:
             json=payload,
         )
     response.raise_for_status()
+
+
+async def send_login_link(to_email: str, link: str) -> None:
+    await _send(
+        to_email,
+        f"Sign in to {config.BRAND_NAME} admin",
+        "<p>Click below to sign in to the admin dashboard. This link "
+        "works once and expires in 15 minutes.</p>"
+        f'<p><a href="{link}">{link}</a></p>'
+        "<p>If you did not request this, you can ignore this email.</p>",
+    )
+
+
+async def send_account_approved(to_email: str, business_name: str, login_link: str) -> None:
+    await _send(
+        to_email,
+        f"You're approved - {business_name} is live on {config.BRAND_NAME}",
+        f"<p>Good news - <strong>{business_name}</strong> has been approved for "
+        f"the {config.BRAND_NAME} voice agent trial.</p>"
+        f'<p><a href="{login_link}">Click here to sign in to your dashboard</a> '
+        "and upload your knowledge base, then grab your embed code or share "
+        "link.</p>"
+        "<p>This link signs you in directly - no password needed.</p>",
+    )
+
+
+async def send_limit_reached(to_email: str, business_name: str, reason: str) -> None:
+    if reason == "trial_expired":
+        subject = f"{business_name}: your free trial has ended"
+        body = ("<p>Your free trial on the voice agent has ended. Reply to "
+                "this email to subscribe and keep it running.</p>")
+    else:
+        subject = f"{business_name}: today's free minutes are used up"
+        body = ("<p>Your voice agent hit today's free usage limit. It will "
+                "reset tomorrow, or reply to this email to subscribe for "
+                "unlimited access now.</p>")
+    await _send(to_email, subject, body)

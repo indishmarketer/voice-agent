@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import datetime
 import logging
+import re
 import secrets
 import time
 import uuid
@@ -26,8 +27,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import branding, config, fillers, integrations, leads, llm, mailer, prompts, security, stt, store, tts
-from .knowledge import KB
+from . import branding, config, fillers, integrations, knowledge, leads, llm, mailer, prompts, security, stt, store, tts
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,7 +70,7 @@ COOKIE_MAX_AGE = 365 * 24 * 3600
 @app.on_event("startup")
 async def _startup() -> None:
     store.init()
-    KB.load()
+    default_kb = knowledge.get_kb(None)
     missing = integrations.missing_required()
     if missing:
         log.error("MISSING REQUIRED ENV VARS: %s - the agent will refuse calls",
@@ -78,7 +78,9 @@ async def _startup() -> None:
     if not config.ALLOWED_ORIGINS:
         log.warning("ALLOWED_ORIGINS is empty - set it to your domain before "
                     "going public, otherwise any site can embed this agent.")
-    log.info("knowledge base: %s", KB.stats())
+    log.info("knowledge base: %s", default_kb.stats())
+    log.info("approved sub-accounts: %d/%d", store.count_approved_accounts(),
+             config.MAX_ACCOUNTS)
     fillers.load_cached()
     if config.ENABLE_FILLERS and not missing:
         # Rendered in the background so the container reports healthy at once.
@@ -105,6 +107,46 @@ def _set_visitor_cookie(response: Response, visitor_id: str) -> None:
         samesite="lax",
         secure=True,
     )
+
+
+# --- Sub-account resolution ---------------------------------------------
+
+def _resolve_account(request: Request, override: str = "") -> Optional[dict[str, Any]]:
+    """None means the original single-tenant agent - the ?account=/subdomain
+    mechanism is purely additive, so a request with neither behaves exactly
+    as it always has.
+
+    Subdomain resolution only activates once PLATFORM_ROOT_DOMAIN is set
+    (i.e. once a real domain is bought and pointed here) - until then every
+    account is still reachable via ?account=<slug>, which keeps working
+    unchanged afterwards too.
+    """
+    slug = (override or request.query_params.get("account", "")).strip().lower()
+    if not slug and config.PLATFORM_ROOT_DOMAIN:
+        host = (request.headers.get("host") or "").split(":")[0].lower()
+        root = config.PLATFORM_ROOT_DOMAIN
+        if host.endswith("." + root):
+            sub = host[: -(len(root) + 1)]
+            if sub and sub != "www":
+                slug = sub
+    if not slug:
+        return None
+    return store.get_account_by_slug(slug)
+
+
+LIMIT_EMAIL_COOLDOWN_SECONDS = 20 * 3600
+
+
+async def _maybe_notify_limit(account: dict[str, Any], reason: str) -> None:
+    """Fire-and-forget email to the business owner when their agent hits a
+    cap - throttled so a burst of denied calls sends one email, not one per
+    attempt."""
+    last = account.get("last_limit_email_at")
+    if last and (time.time() - last) < LIMIT_EMAIL_COOLDOWN_SECONDS:
+        return
+    store.mark_limit_email_sent(account["id"])
+    with contextlib.suppress(Exception):
+        await mailer.send_limit_reached(account["email"], account["business_name"], reason)
 
 
 # --- Pages ------------------------------------------------------------------
@@ -150,9 +192,17 @@ async def start_session(request: Request) -> Response:
     with contextlib.suppress(Exception):
         body = await request.json()
 
+    requested_slug = (body.get("account") or "").strip().lower()
+    account = _resolve_account(request, requested_slug)
+    if requested_slug and account is None:
+        return JSONResponse({"error": "This voice agent is not available."},
+                            status_code=404)
+    account_id = account["id"] if account else None
+
     ip = security.client_ip(request)
     ip_hash = security.hash_ip(ip)
     visitor_id, is_new = _visitor_id_from(request)
+    scoped_visitor_id = store.visitor_key(visitor_id, account_id)
 
     # The owner testing their own deployed site would otherwise trip the same
     # per-IP daily cap as the public - incognito clears the visitor cookie but
@@ -170,9 +220,14 @@ async def start_session(request: Request) -> Response:
 
     if not is_owner:
         try:
-            security.enforce_quotas(ip_hash, visitor_id)
+            security.check_account(account)
+            security.check_account_daily_cap(account)
+            security.enforce_quotas(ip_hash, scoped_visitor_id)
         except security.Denied as denied:
-            log.info("session denied (%s) ip=%s", denied.reason, ip_hash[:8])
+            log.info("session denied (%s) ip=%s account=%s", denied.reason,
+                     ip_hash[:8], account_id)
+            if account and denied.reason in ("trial_expired", "account_daily_cap"):
+                asyncio.create_task(_maybe_notify_limit(account, denied.reason))
             return JSONResponse({"error": denied.message}, status_code=denied.status)
 
     session_id = uuid.uuid4().hex
@@ -190,13 +245,13 @@ async def start_session(request: Request) -> Response:
             {"error": "Speech service is unavailable right now."}, status_code=503
         )
 
-    store.touch_visitor(visitor_id)
-    store.create_session(session_id, visitor_id, ip_hash)
+    store.touch_visitor(scoped_visitor_id)
+    store.create_session(session_id, scoped_visitor_id, ip_hash, account_id)
 
     payload = {
         "session_id": session_id,
         "session_token": security.sign(
-            {"sid": session_id, "vid": visitor_id},
+            {"sid": session_id, "vid": scoped_visitor_id, "aid": account_id},
             config.SESSION_MAX_SECONDS + 120,
         ),
         "stt_ws_url": stt.websocket_url(aai_token),
@@ -215,10 +270,12 @@ async def start_session(request: Request) -> Response:
 class Call:
     """State for one websocket conversation."""
 
-    def __init__(self, ws: WebSocket, session_id: str, visitor_id: str) -> None:
+    def __init__(self, ws: WebSocket, session_id: str, visitor_id: str,
+                account_id: Optional[int] = None) -> None:
         self.ws = ws
         self.session_id = session_id
         self.visitor_id = visitor_id
+        self.account_id = account_id
         self.started = time.monotonic()
         self.history: list[dict[str, str]] = []
         self.turn_count = 0
@@ -326,10 +383,12 @@ async def agent_socket(ws: WebSocket) -> None:
 
     session_id = claims["sid"]
     visitor_id = claims["vid"]
+    account_id = claims.get("aid")
 
     await ws.accept()
-    call = Call(ws, session_id, visitor_id)
-    log.info("call %s started (visitor %s)", session_id[:8], visitor_id[:8])
+    call = Call(ws, session_id, visitor_id, account_id)
+    log.info("call %s started (visitor %s, account %s)", session_id[:8],
+             visitor_id[:8], account_id)
 
     watchdog = asyncio.create_task(_watchdog(call))
     try:
@@ -350,7 +409,7 @@ async def agent_socket(ws: WebSocket) -> None:
         if call.history:
             asyncio.create_task(
                 _finalise(session_id, visitor_id, list(call.history),
-                         call.contact_confirmed_data)
+                         call.contact_confirmed_data, call.account_id)
             )
         log.info("call %s ended after %.0fs, %d turns",
                  session_id[:8], call.elapsed, call.turn_count)
@@ -358,9 +417,11 @@ async def agent_socket(ws: WebSocket) -> None:
 
 async def _finalise(session_id: str, visitor_id: str,
                     history: list[dict[str, str]],
-                    confirmed_contact: Optional[dict[str, Any]] = None) -> None:
+                    confirmed_contact: Optional[dict[str, Any]] = None,
+                    account_id: Optional[int] = None) -> None:
     with contextlib.suppress(Exception):
-        await leads.process_session(session_id, visitor_id, history, confirmed_contact)
+        await leads.process_session(session_id, visitor_id, history,
+                                    confirmed_contact, account_id)
 
 
 async def _watchdog(call: Call) -> None:
@@ -469,7 +530,7 @@ async def _bridge_if_slow(call: Call) -> None:
 async def _handle_greeting(call: Call) -> None:
     text = _greeting_for(call.visitor)
     call.history.append({"role": "assistant", "content": text})
-    store.add_turn(call.session_id, call.visitor_id, "assistant", text)
+    store.add_turn(call.session_id, call.visitor_id, "assistant", text, call.account_id)
     await _speak(call, _once(text), announce=text)
 
 
@@ -487,7 +548,7 @@ async def _handle_turn(call: Call, text: str) -> None:
     call.cancel = asyncio.Event()
 
     call.history.append({"role": "user", "content": text})
-    store.add_turn(call.session_id, call.visitor_id, "user", text)
+    store.add_turn(call.session_id, call.visitor_id, "user", text, call.account_id)
     await call.send_json({"type": "user_text", "text": text})
     await call.send_json({"type": "status", "state": "thinking"})
 
@@ -522,7 +583,7 @@ async def _respond_with_llm(call: Call, text: str) -> None:
             bridge_task = asyncio.create_task(_bridge_if_slow(call))
 
     system = prompts.build_system_prompt(
-        text, call.visitor, _history_hint(call.visitor_id)
+        text, call.visitor, _history_hint(call.visitor_id), call.account_id
     )
     if call.contact_flow_done:
         system += (
@@ -556,7 +617,7 @@ async def _respond_with_llm(call: Call, text: str) -> None:
 
     if spoken:
         call.history.append({"role": "assistant", "content": spoken})
-        store.add_turn(call.session_id, call.visitor_id, "assistant", spoken)
+        store.add_turn(call.session_id, call.visitor_id, "assistant", spoken, call.account_id)
 
     if marker_flag["seen"] and not call.contact_flow_done:
         await _begin_contact_flow(call)
@@ -610,7 +671,7 @@ async def _say_contact_line(call: Call, text: str) -> None:
     """A fixed backend-spoken line during contact capture - not an LLM reply,
     so it is exact, never wanders, and never re-emits the marker."""
     call.history.append({"role": "assistant", "content": text})
-    store.add_turn(call.session_id, call.visitor_id, "assistant", text)
+    store.add_turn(call.session_id, call.visitor_id, "assistant", text, call.account_id)
     await _speak(call, _once(text), announce=text)
 
 
@@ -676,7 +737,8 @@ async def _finalise_contact(call: Call) -> None:
 
     transcript = leads.transcript_text(call.history)
     lead_id = store.save_lead(
-        call.session_id, call.visitor_id, call.contact_fields, transcript
+        call.session_id, call.visitor_id, call.contact_fields, transcript,
+        call.account_id,
     )
     store.update_visitor_memory(
         call.visitor_id, name=call.contact_fields.get("name"),
@@ -785,7 +847,7 @@ async def _handle_contact_skip(call: Call) -> None:
 
     text = "No thanks, not right now."
     call.history.append({"role": "user", "content": text})
-    store.add_turn(call.session_id, call.visitor_id, "user", text)
+    store.add_turn(call.session_id, call.visitor_id, "user", text, call.account_id)
     await _respond_with_llm(call, text)
 
 
@@ -849,7 +911,13 @@ ADMIN_SESSION_COOKIE = "im_admin_session"
 ADMIN_SESSION_SECONDS = 30 * 24 * 3600
 
 
-def _admin_email_from_cookie(request: Request) -> Optional[str]:
+def _admin_context_from_cookie(request: Request) -> Optional[dict[str, Any]]:
+    """Resolves a magic-link session cookie to who is logged in and what
+    they can see: the main-account owner (is_super, sees everything, no
+    account_id gate) or one sub-account's contact - re-checked against the
+    accounts table on every request (not just baked into the cookie once),
+    so deleting or rejecting an account revokes an already-issued session
+    immediately rather than after it expires."""
     raw = request.cookies.get(ADMIN_SESSION_COOKIE, "")
     if not raw:
         return None
@@ -857,28 +925,52 @@ def _admin_email_from_cookie(request: Request) -> Optional[str]:
     if not claims:
         return None
     email = claims.get("email", "")
-    return email if email in config.ADMIN_EMAILS else None
+    if email in config.ADMIN_EMAILS:
+        return {"is_super": True, "account_id": None, "email": email}
+    account_id = claims.get("account_id")
+    if account_id is None:
+        return None
+    account = store.get_account(account_id)
+    if not account or account["status"] != "approved" or account["email"] != email:
+        return None
+    return {"is_super": False, "account_id": account_id, "email": email,
+            "account": account}
 
 
-def _require_admin(request: Request) -> None:
+def _require_admin(request: Request) -> dict[str, Any]:
     """Accepts EITHER the standing ?token= (a permanent "master key" useful
-    for the owner's own API/automation access) OR a valid magic-link session
-    cookie. A plain browser page load (GET) that fails both is sent to the
-    login page instead of a bare 404, since a human looking at that URL can
-    actually do something about it; an API call (POST) still just gets 404,
-    same as before - it was never meant to be user-facing."""
+    for the owner's own API/automation access, always the main super account)
+    OR a valid magic-link session cookie (main account or one sub-account).
+    A plain browser page load (GET) that fails both is sent to the login page
+    instead of a bare 404, since a human looking at that URL can actually do
+    something about it; an API call (POST) still just gets 404, same as
+    before - it was never meant to be user-facing."""
     token = request.query_params.get("token") or request.headers.get("x-admin-token", "")
-    if security.is_admin(token) or _admin_email_from_cookie(request):
-        return
+    if security.is_admin(token):
+        return {"is_super": True, "account_id": None, "email": None}
+    ctx = _admin_context_from_cookie(request)
+    if ctx:
+        return ctx
     if request.method == "GET":
         raise HTTPException(status_code=302, headers={"Location": "/admin/login"})
     raise HTTPException(status_code=404, detail="Not found")
 
 
-def _knowledge_file_status() -> dict[str, dict[str, Any]]:
+def _require_super(admin: dict[str, Any] = Depends(_require_admin)) -> dict[str, Any]:
+    """Gates the pages/actions that stay owner-only: integrations, global
+    agent behaviour, and the accounts queue itself. A sub-account admin
+    hitting one of these gets the same 404 as a stranger - it should not even
+    reveal that the page exists."""
+    if not admin["is_super"]:
+        raise HTTPException(status_code=404, detail="Not found")
+    return admin
+
+
+def _knowledge_file_status(account_id: Optional[int] = None) -> dict[str, dict[str, Any]]:
     status = {}
+    directory = knowledge.dir_for(account_id)
     for key, filename in KNOWLEDGE_TARGETS.items():
-        path = config.KNOWLEDGE_DIR / filename
+        path = directory / filename
         if path.exists():
             stat = path.stat()
             status[key] = {
@@ -895,30 +987,49 @@ def _knowledge_file_status() -> dict[str, dict[str, Any]]:
     return status
 
 
-def _admin_base_context(request: Request, active_page: str) -> dict[str, Any]:
+def _admin_base_context(request: Request, active_page: str,
+                        admin: dict[str, Any]) -> dict[str, Any]:
     """Shared context every admin page needs - the sidebar, the theme toggle,
-    and whatever identifies the logged-in owner. Falls back to showing
+    and whatever identifies the logged-in admin. Falls back to showing
     "token access" instead of an email for anyone in via the standing
     ?token= master key rather than a real magic-link login."""
     token = request.query_params.get("token", "")
-    email = _admin_email_from_cookie(request)
+    email = admin.get("email")
+    account = admin.get("account")
+    owner_link = f"{request.url.scheme}://{request.url.netloc}/?owner={config.ADMIN_TOKEN}"
+    if account:
+        owner_link = (f"{request.url.scheme}://{request.url.netloc}/"
+                     f"?account={account['slug']}")
     return {
         "request": request,
         "active_page": active_page,
         "token": token,
+        "is_super": admin["is_super"],
+        "account": account,
         # The actual master key, not whatever happens to be in this page's
         # URL - a magic-link login never has ?token= in the address bar, so
         # reading it from query params left this blank for anyone who logged
         # in that way.
-        "owner_link": f"{request.url.scheme}://{request.url.netloc}/?owner={config.ADMIN_TOKEN}",
+        "owner_link": owner_link,
         "owner_email": email,
         "owner_initial": email[0].upper() if email else None,
     }
 
 
+def _email_may_login(email: str) -> bool:
+    """A sub-account's contact email doubles as its admin login, same as
+    ADMIN_EMAILS does for the main account - no separate password to manage,
+    and it is revoked automatically the moment the account stops being
+    'approved' (see _admin_context_from_cookie)."""
+    if email in config.ADMIN_EMAILS:
+        return True
+    account = store.get_account_by_email(email)
+    return bool(account and account["status"] == "approved")
+
+
 @app.get("/admin/login", response_class=HTMLResponse)
 async def admin_login_page(request: Request) -> Response:
-    if _admin_email_from_cookie(request):
+    if _admin_context_from_cookie(request):
         return RedirectResponse("/admin")
     return templates.TemplateResponse("admin_login.html", {"request": request})
 
@@ -930,9 +1041,9 @@ async def admin_login_request(request: Request) -> Response:
         body = await request.json()
     email = (body.get("email") or "").strip().lower()
 
-    # Same response whether or not the address is on the allowlist - a
-    # different one here would let anyone probe which emails are admins.
-    if email in config.ADMIN_EMAILS:
+    # Same response whether or not the address may log in - a different one
+    # here would let anyone probe which emails are admins.
+    if _email_may_login(email):
         if not config.BREVO_API_KEY or not config.BREVO_SENDER_EMAIL:
             log.error("magic-link login requested but Brevo is not configured")
             return JSONResponse(
@@ -957,13 +1068,20 @@ async def admin_login_request(request: Request) -> Response:
 @app.get("/admin/login/verify")
 async def admin_login_verify(request: Request, token: str = "") -> Response:
     email = store.consume_login_token(token)
-    if not email or email not in config.ADMIN_EMAILS:
+    if not email:
         return RedirectResponse("/admin/login?error=1")
+
+    claims: dict[str, Any] = {"email": email}
+    if email not in config.ADMIN_EMAILS:
+        account = store.get_account_by_email(email)
+        if not account or account["status"] != "approved":
+            return RedirectResponse("/admin/login?error=1")
+        claims["account_id"] = account["id"]
 
     response = RedirectResponse("/admin")
     response.set_cookie(
         ADMIN_SESSION_COOKIE,
-        security.sign({"email": email}, ADMIN_SESSION_SECONDS),
+        security.sign(claims, ADMIN_SESSION_SECONDS),
         max_age=ADMIN_SESSION_SECONDS,
         httponly=True,
         samesite="lax",
@@ -982,45 +1100,51 @@ async def admin_logout() -> Response:
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_dashboard(request: Request,
-                          _: None = Depends(_require_admin)) -> Response:
-    ctx = _admin_base_context(request, "dashboard")
-    ctx.update({
-        "usage": store.usage_summary(),
-        "active": security.active_count(),
-        "turnstile_on": bool(integrations.turnstile_secret_key()),
-        "limits": {
-            "Sessions per IP per day": config.SESSIONS_PER_IP_PER_DAY,
-            "Sessions per visitor per day": config.SESSIONS_PER_VISITOR_PER_DAY,
-            "Global sessions per day": config.GLOBAL_SESSIONS_PER_DAY,
-            "Global STT minutes per day": config.GLOBAL_STT_SECONDS_PER_DAY // 60,
-            "Max session seconds": config.SESSION_MAX_SECONDS,
-            "Max concurrent calls": config.MAX_CONCURRENT_SESSIONS,
-        },
-    })
+                          admin: dict[str, Any] = Depends(_require_admin)) -> Response:
+    ctx = _admin_base_context(request, "dashboard", admin)
+    ctx["usage"] = store.usage_summary(admin["account_id"])
+    if admin["is_super"]:
+        ctx.update({
+            "active": security.active_count(),
+            "turnstile_on": bool(integrations.turnstile_secret_key()),
+            "accounts_pending": len(store.list_accounts("pending")),
+            "accounts_approved": store.count_approved_accounts(),
+            "limits": {
+                "Sessions per IP per day": config.SESSIONS_PER_IP_PER_DAY,
+                "Sessions per visitor per day": config.SESSIONS_PER_VISITOR_PER_DAY,
+                "Global sessions per day": config.GLOBAL_SESSIONS_PER_DAY,
+                "Global STT minutes per day": config.GLOBAL_STT_SECONDS_PER_DAY // 60,
+                "Max session seconds": config.SESSION_MAX_SECONDS,
+                "Max concurrent calls": config.MAX_CONCURRENT_SESSIONS,
+            },
+        })
     return templates.TemplateResponse("admin_dashboard.html", ctx)
 
 
 @app.get("/admin/leads", response_class=HTMLResponse)
 async def admin_leads_page(request: Request,
-                           _: None = Depends(_require_admin)) -> Response:
+                           admin: dict[str, Any] = Depends(_require_admin)) -> Response:
     leads_out = []
-    for lead in store.list_leads(100):
+    for lead in store.list_leads(100, admin["account_id"]):
         lead = dict(lead)
         lead["when"] = datetime.datetime.fromtimestamp(
             lead["created_at"], tz=datetime.timezone.utc
         ).strftime("%b %d, %H:%M")
         leads_out.append(lead)
 
-    ctx = _admin_base_context(request, "leads")
+    ctx = _admin_base_context(request, "leads", admin)
     ctx.update({"leads": leads_out, "sheets_url": config.SHEETS_URL})
     return templates.TemplateResponse("admin_leads.html", ctx)
 
 
 @app.get("/admin/knowledge", response_class=HTMLResponse)
 async def admin_knowledge_page(request: Request,
-                               _: None = Depends(_require_admin)) -> Response:
-    ctx = _admin_base_context(request, "knowledge")
-    ctx.update({"kb": KB.stats(), "kb_files": _knowledge_file_status()})
+                               admin: dict[str, Any] = Depends(_require_admin)) -> Response:
+    ctx = _admin_base_context(request, "knowledge", admin)
+    ctx.update({
+        "kb": knowledge.get_kb(admin["account_id"]).stats(),
+        "kb_files": _knowledge_file_status(admin["account_id"]),
+    })
     return templates.TemplateResponse("admin_knowledge.html", ctx)
 
 
@@ -1036,9 +1160,9 @@ def _mask_secret(value: str) -> str:
 
 @app.get("/admin/integrations", response_class=HTMLResponse)
 async def admin_integrations_page(request: Request,
-                                  _: None = Depends(_require_admin)) -> Response:
+                                  admin: dict[str, Any] = Depends(_require_super)) -> Response:
     current = integrations.get_integrations()
-    ctx = _admin_base_context(request, "integrations")
+    ctx = _admin_base_context(request, "integrations", admin)
     ctx.update({
         "models": {
             "pollinations_model": current["pollinations_model"],
@@ -1059,8 +1183,8 @@ async def admin_integrations_page(request: Request,
 
 @app.get("/admin/settings", response_class=HTMLResponse)
 async def admin_settings_page(request: Request,
-                              _: None = Depends(_require_admin)) -> Response:
-    ctx = _admin_base_context(request, "settings")
+                              admin: dict[str, Any] = Depends(_require_super)) -> Response:
+    ctx = _admin_base_context(request, "settings", admin)
     ctx.update({
         "agent_rules": prompts.active_behavior_rules(),
         "default_rules": prompts._default_behavior_rules(),
@@ -1071,7 +1195,7 @@ async def admin_settings_page(request: Request,
 
 @app.post("/admin/settings")
 async def save_admin_settings(request: Request,
-                              _: None = Depends(_require_admin)) -> Response:
+                              _: dict[str, Any] = Depends(_require_super)) -> Response:
     body: dict[str, Any] = {}
     with contextlib.suppress(Exception):
         body = await request.json()
@@ -1104,7 +1228,7 @@ async def save_branding(request: Request,
                         agent_name: str = Form(""),
                         greeting: str = Form(""),
                         logo: Optional[UploadFile] = File(None),
-                        _: None = Depends(_require_admin)) -> Response:
+                        _: dict[str, Any] = Depends(_require_super)) -> Response:
     for field_name, value in (("brand_name", brand_name), ("tagline", tagline),
                               ("agent_name", agent_name), ("greeting", greeting)):
         limit = BRANDING_TEXT_FIELDS[field_name][1]
@@ -1168,7 +1292,7 @@ def _save_text_settings(body: dict[str, Any], fields: dict[str, str],
 
 @app.post("/admin/integrations/models")
 async def save_model_settings(request: Request,
-                              _: None = Depends(_require_admin)) -> Response:
+                              _: dict[str, Any] = Depends(_require_super)) -> Response:
     body: dict[str, Any] = {}
     with contextlib.suppress(Exception):
         body = await request.json()
@@ -1191,7 +1315,7 @@ PROVIDER_KEY_FIELDS = {
 
 @app.post("/admin/integrations/keys")
 async def save_provider_keys(request: Request,
-                             _: None = Depends(_require_admin)) -> Response:
+                             _: dict[str, Any] = Depends(_require_super)) -> Response:
     body: dict[str, Any] = {}
     with contextlib.suppress(Exception):
         body = await request.json()
@@ -1212,7 +1336,7 @@ TURNSTILE_FIELDS = {
 
 @app.post("/admin/integrations/turnstile")
 async def save_turnstile_settings(request: Request,
-                                  _: None = Depends(_require_admin)) -> Response:
+                                  _: dict[str, Any] = Depends(_require_super)) -> Response:
     body: dict[str, Any] = {}
     with contextlib.suppress(Exception):
         body = await request.json()
@@ -1228,7 +1352,7 @@ async def save_turnstile_settings(request: Request,
 @app.post("/admin/knowledge")
 async def upload_knowledge(request: Request, file: UploadFile = File(...),
                            target: Optional[str] = Form(None),
-                           _: None = Depends(_require_admin)) -> Response:
+                           admin: dict[str, Any] = Depends(_require_admin)) -> Response:
     if target:
         canonical = KNOWLEDGE_TARGETS.get(target)
         if not canonical:
@@ -1240,29 +1364,31 @@ async def upload_knowledge(request: Request, file: UploadFile = File(...),
             return JSONResponse({"error": "Only .md files are accepted."}, status_code=400)
 
     content = (await file.read()).decode("utf-8", errors="replace")
-    config.KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
-    (config.KNOWLEDGE_DIR / name).write_text(content, encoding="utf-8")
-    KB.load()
-    return JSONResponse({"ok": True, "kb": KB.stats()})
+    directory = knowledge.dir_for(admin["account_id"])
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_text(content, encoding="utf-8")
+    kb = knowledge.reload_kb(admin["account_id"])
+    return JSONResponse({"ok": True, "kb": kb.stats()})
 
 
 @app.post("/admin/knowledge/reload")
 async def reload_knowledge(request: Request,
-                           _: None = Depends(_require_admin)) -> Response:
-    KB.load()
-    return JSONResponse({"ok": True, "kb": KB.stats()})
+                           admin: dict[str, Any] = Depends(_require_admin)) -> Response:
+    kb = knowledge.reload_kb(admin["account_id"])
+    return JSONResponse({"ok": True, "kb": kb.stats()})
 
 
 @app.post("/admin/leads/delete")
 async def delete_leads(request: Request,
-                       _: None = Depends(_require_admin)) -> Response:
+                       admin: dict[str, Any] = Depends(_require_admin)) -> Response:
     body: dict[str, Any] = {}
     with contextlib.suppress(Exception):
         body = await request.json()
 
     if body.get("all"):
-        removed = store.delete_all_leads()
-        log.info("admin deleted all leads (%d rows)", removed)
+        removed = store.delete_all_leads(admin["account_id"])
+        log.info("admin deleted all leads (%d rows, account=%s)", removed,
+                 admin["account_id"])
         return JSONResponse({"ok": True, "removed": removed})
 
     ids = body.get("ids") or []
@@ -1273,6 +1399,210 @@ async def delete_leads(request: Request,
     if not ids:
         return JSONResponse({"error": "No lead ids given."}, status_code=400)
 
-    removed = store.delete_leads(ids)
-    log.info("admin deleted %d lead(s)", removed)
+    removed = store.delete_leads(ids, admin["account_id"])
+    log.info("admin deleted %d lead(s, account=%s)", removed, admin["account_id"])
     return JSONResponse({"ok": True, "removed": removed})
+
+
+# --- Sub-account application + management -----------------------------
+
+_SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$")
+_RESERVED_SLUGS = {"www", "admin", "api", "static", "app", "mail", "default"}
+
+
+def _slugify(business_name: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", business_name.lower()).strip("-")[:40] or "business"
+    return base
+
+
+@app.get("/apply", response_class=HTMLResponse)
+async def apply_page(request: Request) -> Response:
+    spots_left = max(0, config.MAX_ACCOUNTS - store.count_approved_accounts())
+    return templates.TemplateResponse(
+        "apply.html",
+        {
+            "request": request,
+            "brand": branding.get_branding()["brand_name"],
+            "spots_left": spots_left,
+            "trial_end": config.DEFAULT_TRIAL_END_DATE,
+            "daily_minutes": config.DEFAULT_TRIAL_DAILY_SECONDS // 60,
+        },
+    )
+
+
+@app.post("/apply")
+async def apply_submit(request: Request) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+
+    business_name = (body.get("business_name") or "").strip()[:120]
+    email = (body.get("email") or "").strip().lower()[:200]
+    website = (body.get("website") or "").strip()[:200]
+    note = (body.get("note") or "").strip()[:1000]
+
+    if not business_name or not email or "@" not in email:
+        return JSONResponse(
+            {"error": "Business name and a valid email are required."}, status_code=400
+        )
+    if store.count_approved_accounts() >= config.MAX_ACCOUNTS:
+        return JSONResponse(
+            {"error": "The beta is full right now. Check back soon."}, status_code=403
+        )
+
+    base_slug = _slugify(business_name)
+    slug = base_slug
+    for attempt in range(1, 20):
+        if slug not in _RESERVED_SLUGS and _SLUG_RE.match(slug) and \
+                not store.get_account_by_slug(slug):
+            break
+        slug = f"{base_slug}-{attempt + 1}"
+    else:
+        return JSONResponse({"error": "Could not allocate a slug. Try a different name."},
+                            status_code=500)
+
+    account_id = store.create_account_application(slug, business_name, email, website, note)
+    if account_id is None:
+        return JSONResponse({"error": "Something went wrong. Please try again."},
+                            status_code=500)
+    log.info("new account application: %s (%s)", business_name, slug)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/admin/accounts", response_class=HTMLResponse)
+async def admin_accounts_page(request: Request,
+                              admin: dict[str, Any] = Depends(_require_super)) -> Response:
+    ctx = _admin_base_context(request, "accounts", admin)
+    accounts_out = []
+    for account in store.list_accounts():
+        account = dict(account)
+        account["created"] = datetime.datetime.fromtimestamp(
+            account["created_at"], tz=datetime.timezone.utc
+        ).strftime("%b %d, %H:%M")
+        if account.get("trial_ends_at"):
+            ends_dt = datetime.datetime.fromtimestamp(
+                account["trial_ends_at"], tz=datetime.timezone.utc
+            )
+            account["trial_ends"] = ends_dt.strftime("%b %d, %Y")
+            account["trial_ends_iso"] = ends_dt.strftime("%Y-%m-%d")
+        else:
+            account["trial_ends_iso"] = ""
+        accounts_out.append(account)
+    ctx.update({
+        "accounts": accounts_out,
+        "max_accounts": config.MAX_ACCOUNTS,
+        "approved_count": store.count_approved_accounts(),
+        "default_trial_end": config.DEFAULT_TRIAL_END_DATE,
+        "default_daily_minutes": config.DEFAULT_TRIAL_DAILY_SECONDS // 60,
+        "root_domain": config.PLATFORM_ROOT_DOMAIN,
+    })
+    return templates.TemplateResponse("admin_accounts.html", ctx)
+
+
+@app.post("/admin/accounts/approve")
+async def admin_accounts_approve(request: Request,
+                                 _: dict[str, Any] = Depends(_require_super)) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+    try:
+        account_id = int(body.get("id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Missing account id."}, status_code=400)
+
+    account = store.get_account(account_id)
+    if not account:
+        return JSONResponse({"error": "Account not found."}, status_code=404)
+    if account["status"] != "approved" and store.count_approved_accounts() >= config.MAX_ACCOUNTS:
+        return JSONResponse({"error": f"Already at the {config.MAX_ACCOUNTS}-account limit."},
+                            status_code=403)
+
+    trial_end_str = (body.get("trial_ends_at") or config.DEFAULT_TRIAL_END_DATE).strip()
+    daily_minutes = int(body.get("daily_minutes_limit") or (config.DEFAULT_TRIAL_DAILY_SECONDS // 60))
+    trial_ends_at = None
+    if trial_end_str:
+        with contextlib.suppress(ValueError):
+            trial_ends_at = datetime.datetime.strptime(
+                trial_end_str, "%Y-%m-%d"
+            ).replace(hour=23, minute=59, second=59, tzinfo=datetime.timezone.utc).timestamp()
+
+    store.approve_account(account_id, trial_ends_at, daily_minutes)
+    log.info("account approved: %s (%s)", account["business_name"], account["slug"])
+
+    login_link = f"{request.url.scheme}://{request.url.netloc}/admin/login"
+    with contextlib.suppress(Exception):
+        await mailer.send_account_approved(account["email"], account["business_name"], login_link)
+
+    return JSONResponse({"ok": True})
+
+
+@app.post("/admin/accounts/update-plan")
+async def admin_accounts_update_plan(request: Request,
+                                     _: dict[str, Any] = Depends(_require_super)) -> Response:
+    """The manual 'mark as paid' action - there is no PayPal/Razorpay
+    integration yet, so this is how a sale (handled outside the app) actually
+    takes effect on the account."""
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+    try:
+        account_id = int(body.get("id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Missing account id."}, status_code=400)
+
+    plan_type = (body.get("plan_type") or "").strip()
+    if plan_type not in ("trial", "subscription", "onetime"):
+        return JSONResponse({"error": "plan_type must be trial, subscription or onetime."},
+                            status_code=400)
+
+    daily_minutes = int(body.get("daily_minutes_limit") or 20)
+    trial_end_str = (body.get("trial_ends_at") or "").strip()
+    trial_ends_at = None
+    if trial_end_str:
+        with contextlib.suppress(ValueError):
+            trial_ends_at = datetime.datetime.strptime(
+                trial_end_str, "%Y-%m-%d"
+            ).replace(hour=23, minute=59, second=59, tzinfo=datetime.timezone.utc).timestamp()
+
+    store.update_account_plan(account_id, plan_type, daily_minutes, trial_ends_at)
+    log.info("account %s plan updated to %s (manual)", account_id, plan_type)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/admin/accounts/reject")
+async def admin_accounts_reject(request: Request,
+                                _: dict[str, Any] = Depends(_require_super)) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+    try:
+        account_id = int(body.get("id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Missing account id."}, status_code=400)
+    store.reject_account(account_id)
+    log.info("account rejected: %s", account_id)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/admin/accounts/delete")
+async def admin_accounts_delete(request: Request,
+                                _: dict[str, Any] = Depends(_require_super)) -> Response:
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+    try:
+        account_id = int(body.get("id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Missing account id."}, status_code=400)
+    store.delete_account(account_id)
+    log.info("account deleted: %s", account_id)
+    return JSONResponse({"ok": True})
+
+
+# --- Embeddable widget --------------------------------------------------
+
+@app.get("/embed.js")
+async def embed_script() -> Response:
+    js = (config.BASE_DIR / "static" / "embed.js").read_text(encoding="utf-8")
+    return Response(content=js, media_type="application/javascript",
+                    headers={"Cache-Control": "public, max-age=300"})

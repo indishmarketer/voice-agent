@@ -1,0 +1,216 @@
+{% extends "admin_base.html" %}
+{% block title %}Accounts — Voice Agent Admin{% endblock %}
+{% block page_title %}Accounts{% endblock %}
+{% block page_sub %}{{ approved_count }}/{{ max_accounts }} approved · applications and live sub-accounts.{% endblock %}
+
+{% block content %}
+<div class="scroll">
+<table>
+    <tr>
+        <th>Business</th><th>Email</th><th>Slug</th><th>Status</th>
+        <th>Plan</th><th>Trial ends</th><th>Daily limit</th><th>Applied</th><th>Actions</th>
+    </tr>
+    {% for a in accounts %}
+    <tr data-id="{{ a.id }}">
+        <td>{{ a.business_name }}{% if a.website %}<div class="hint" style="font-size:11.5px">{{ a.website }}</div>{% endif %}</td>
+        <td>{{ a.email }}</td>
+        <td class="mono">{{ a.slug }}</td>
+        <td>
+            {% if a.status == 'approved' %}<span class="pill yes">approved</span>
+            {% elif a.status == 'rejected' %}<span class="pill no">rejected</span>
+            {% else %}<span class="pill warn">pending</span>{% endif %}
+        </td>
+        <td>{{ a.plan_type }}</td>
+        <td class="mono">{{ a.trial_ends or '—' }}</td>
+        <td class="mono">{{ a.daily_minutes_limit }} min</td>
+        <td class="mono">{{ a.created }}</td>
+        <td style="white-space:nowrap">
+            {% if a.status != 'approved' %}
+            <button type="button" class="small approve-btn">Approve</button>
+            {% endif %}
+            {% if a.status == 'pending' %}
+            <button type="button" class="small ghost reject-btn">Reject</button>
+            {% endif %}
+            {% if a.status == 'approved' %}
+            <button type="button" class="small ghost embed-btn">Embed code</button>
+            <button type="button" class="small ghost plan-btn"
+                    data-plan="{{ a.plan_type }}" data-minutes="{{ a.daily_minutes_limit }}"
+                    data-trial-end="{{ a.trial_ends_iso }}" data-business="{{ a.business_name }}">Edit plan</button>
+            {% endif %}
+            <button type="button" class="small danger delete-btn">Delete</button>
+        </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" class="empty">No applications yet. Share the apply link to get your first sub-accounts.</td></tr>
+    {% endfor %}
+</table>
+</div>
+
+<h2 class="section" style="margin-top:24px">Apply link</h2>
+<div class="panel">
+    <p class="hint">Share this link so businesses can apply for a trial account:</p>
+    <p><code id="apply-link"></code></p>
+</div>
+
+<div id="plan-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;align-items:center;justify-content:center">
+    <div class="panel" style="max-width:420px;width:92%;">
+        <p style="margin-top:0;font-weight:600">Edit plan — <span id="plan-business"></span></p>
+        <p class="hint" style="margin-top:-6px">
+            No payment gateway is wired up yet - use this after you've been paid
+            outside the app (UPI, bank transfer, etc.) to switch them off the
+            free trial cap.
+        </p>
+        <label style="display:block;font-size:13px;font-weight:500;margin:12px 0 6px">Plan</label>
+        <select id="plan-type" style="width:100%;font-family:inherit;font-size:13.5px;color:var(--text-main);background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:9px 11px">
+            <option value="trial">Trial (capped, free)</option>
+            <option value="subscription">Subscription (paid, unlimited)</option>
+            <option value="onetime">One-time (paid, unlimited)</option>
+        </select>
+        <div id="plan-trial-fields">
+            <label style="display:block;font-size:13px;font-weight:500;margin:12px 0 6px">Daily minutes limit</label>
+            <input type="text" id="plan-minutes" inputmode="numeric">
+            <label style="display:block;font-size:13px;font-weight:500;margin:12px 0 6px">Trial ends (blank = never)</label>
+            <input type="date" id="plan-trial-end">
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+            <button type="button" class="ghost" id="plan-close">Cancel</button>
+            <button type="button" id="plan-save">Save</button>
+        </div>
+        <div id="plan-msg" class="status-msg" style="margin-top:8px"></div>
+    </div>
+</div>
+
+<div id="embed-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;align-items:center;justify-content:center">
+    <div class="panel" style="max-width:560px;width:92%;">
+        <p style="margin-top:0;font-weight:600">Embed code</p>
+        <p class="hint">Paste this before <code>&lt;/body&gt;</code> on the business's site:</p>
+        <textarea id="embed-code" readonly style="width:100%;min-height:90px;font-family:monospace;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:10px"></textarea>
+        <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+            <button type="button" class="ghost" id="embed-close">Close</button>
+            <button type="button" id="embed-copy">Copy</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block script_extra %}
+<script>
+const TOKEN = {{ token | tojson }};
+const withToken = (path) => path + "?token=" + encodeURIComponent(TOKEN);
+const ROOT_DOMAIN = {{ root_domain | tojson }};
+
+document.getElementById("apply-link").textContent = location.origin + "/apply";
+
+async function postJson(path, body) {
+    const res = await fetch(withToken(path), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Something went wrong.");
+    return data;
+}
+
+document.querySelectorAll(".approve-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+        const id = Number(btn.closest("tr").dataset.id);
+        btn.disabled = true;
+        try {
+            await postJson("/admin/accounts/approve", { id });
+            location.reload();
+        } catch (err) {
+            alert(err.message);
+            btn.disabled = false;
+        }
+    });
+});
+
+document.querySelectorAll(".reject-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+        const id = Number(btn.closest("tr").dataset.id);
+        if (!confirm("Reject this application?")) return;
+        try {
+            await postJson("/admin/accounts/reject", { id });
+            location.reload();
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+});
+
+document.querySelectorAll(".delete-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+        const row = btn.closest("tr");
+        const id = Number(row.dataset.id);
+        if (!confirm("Delete this account permanently? This removes their leads, knowledge base and usage history too.")) return;
+        try {
+            await postJson("/admin/accounts/delete", { id });
+            location.reload();
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+});
+
+const planModal = document.getElementById("plan-modal");
+const planType = document.getElementById("plan-type");
+const planMinutes = document.getElementById("plan-minutes");
+const planTrialEnd = document.getElementById("plan-trial-end");
+const planTrialFields = document.getElementById("plan-trial-fields");
+const planMsg = document.getElementById("plan-msg");
+let planAccountId = null;
+
+function syncPlanFieldsVisibility() {
+    planTrialFields.style.display = planType.value === "trial" ? "block" : "none";
+}
+planType.addEventListener("change", syncPlanFieldsVisibility);
+
+document.querySelectorAll(".plan-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+        planAccountId = Number(btn.closest("tr").dataset.id);
+        document.getElementById("plan-business").textContent = btn.dataset.business;
+        planType.value = btn.dataset.plan;
+        planMinutes.value = btn.dataset.minutes;
+        planTrialEnd.value = btn.dataset.trialEnd || "";
+        planMsg.textContent = "";
+        syncPlanFieldsVisibility();
+        planModal.style.display = "flex";
+    });
+});
+document.getElementById("plan-close").addEventListener("click", () => { planModal.style.display = "none"; });
+document.getElementById("plan-save").addEventListener("click", async () => {
+    try {
+        await postJson("/admin/accounts/update-plan", {
+            id: planAccountId,
+            plan_type: planType.value,
+            daily_minutes_limit: Number(planMinutes.value) || 20,
+            trial_ends_at: planTrialEnd.value,
+        });
+        location.reload();
+    } catch (err) {
+        planMsg.textContent = err.message;
+        planMsg.className = "status-msg err";
+    }
+});
+
+const modal = document.getElementById("embed-modal");
+const codeBox = document.getElementById("embed-code");
+document.querySelectorAll(".embed-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+        const row = btn.closest("tr");
+        const slug = row.querySelector("td:nth-child(3)").textContent.trim();
+        const src = ROOT_DOMAIN
+            ? `${location.protocol}//${location.host}/embed.js`
+            : `${location.origin}/embed.js`;
+        codeBox.value = `<script src="${src}" data-account="${slug}" async><\/script>`;
+        modal.style.display = "flex";
+    });
+});
+document.getElementById("embed-close").addEventListener("click", () => { modal.style.display = "none"; });
+document.getElementById("embed-copy").addEventListener("click", () => {
+    codeBox.select();
+    navigator.clipboard.writeText(codeBox.value).catch(() => document.execCommand("copy"));
+});
+</script>
+{% endblock %}

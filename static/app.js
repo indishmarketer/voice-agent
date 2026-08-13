@@ -769,6 +769,10 @@
 
   bootstrapOwnerToken();
 
+  function accountFromUrl() {
+    return new URLSearchParams(location.search).get("account") || "";
+  }
+
   async function requestSession() {
     const owner = ownerToken();
     // The server skips verification for a valid owner token, so there is no
@@ -780,7 +784,10 @@
     const response = await fetch("/api/session/start", {
       method: "POST",
       headers,
-      body: JSON.stringify({ turnstile_token: turnstileToken }),
+      body: JSON.stringify({
+        turnstile_token: turnstileToken,
+        account: accountFromUrl(),
+      }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "Could not start the call.");

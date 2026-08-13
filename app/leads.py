@@ -124,7 +124,8 @@ async def extract_confirmation_reply(text: str) -> dict[str, Any]:
 
 async def process_session(session_id: str, visitor_id: str,
                           turns: list[dict[str, Any]],
-                          confirmed_contact: Optional[dict[str, Any]] = None) -> None:
+                          confirmed_contact: Optional[dict[str, Any]] = None,
+                          account_id: Optional[int] = None) -> None:
     """Summarise the call, pull out contact details, persist and sync.
 
     `confirmed_contact` is the name/email/phone the caller explicitly
@@ -187,8 +188,9 @@ async def process_session(session_id: str, visitor_id: str,
         phone=data.get("phone"),
     )
 
-    lead_id = store.save_lead(session_id, visitor_id, data, transcript)
-    log.info("lead %s saved (email=%s)", lead_id, bool(data.get("email")))
+    lead_id = store.save_lead(session_id, visitor_id, data, transcript, account_id)
+    log.info("lead %s saved (email=%s, account=%s)", lead_id,
+             bool(data.get("email")), account_id)
 
     if await _push_to_sheet(session_id, visitor_id, data, summary, transcript):
         store.mark_lead_synced(lead_id)

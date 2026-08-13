@@ -154,6 +154,53 @@ def active_count() -> int:
     return len(_active)
 
 
+# --- Accounts (sub-account trial/plan gating) -------------------------------
+
+def check_account(account: Optional[dict[str, Any]]) -> None:
+    """Raises Denied if this account cannot take a call right now. Called
+    before enforce_quotas so an expired trial reads as "please subscribe",
+    not a generic rate-limit message.
+
+    account is None for the original single-tenant agent (no gate at all -
+    it predates sub-accounts and keeps its existing quota-only behaviour).
+    """
+    if account is None:
+        return
+    if account["status"] != "approved":
+        raise Denied(
+            "account_not_active",
+            "This voice agent is not active yet. Please contact its owner.",
+            403,
+        )
+    if account["plan_type"] == "trial" and account["trial_ends_at"] and \
+            time.time() >= account["trial_ends_at"]:
+        raise Denied(
+            "trial_expired",
+            "This free trial has ended. Please subscribe to keep using this "
+            "voice agent.",
+            402,
+        )
+
+
+def check_account_daily_cap(account: Optional[dict[str, Any]]) -> None:
+    """Only the free trial is capped. Once an owner manually marks an account
+    as 'subscription' or 'onetime' (there is no payment gateway wired up yet -
+    see /admin/accounts's "Edit plan"), the daily minutes ledger keeps being
+    recorded for visibility, but no longer blocks calls."""
+    if account is None or account["plan_type"] != "trial":
+        return
+    limit_seconds = int(account["daily_minutes_limit"]) * 60
+    used = store.stt_seconds_today(account_id=account["id"])
+    if used >= limit_seconds:
+        raise Denied(
+            "account_daily_cap",
+            f"Today's {account['daily_minutes_limit']}-minute free limit has "
+            "been used up. Please try again tomorrow, or subscribe for "
+            "unlimited access.",
+            429,
+        )
+
+
 # --- Quotas -----------------------------------------------------------------
 
 def enforce_quotas(ip_hash: str, visitor_id: str) -> None:

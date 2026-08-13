@@ -88,6 +88,18 @@ ALLOWED_ORIGINS = [
 ]
 TRUST_PROXY = _bool("TRUST_PROXY", True)
 
+# --- Multi-tenant sub-accounts -----------------------------------------------
+# Empty until a real domain is bought and pointed at this server - subdomain
+# resolution (business.yourdomain.com) only activates once this is set. Until
+# then, accounts are still reachable via ?account=<slug>, which always works.
+PLATFORM_ROOT_DOMAIN = _env("PLATFORM_ROOT_DOMAIN").lower()
+MAX_ACCOUNTS = _int("MAX_ACCOUNTS", 20)
+DEFAULT_TRIAL_DAILY_SECONDS = _int("DEFAULT_TRIAL_DAILY_SECONDS", 20 * 60)
+# ISO date (YYYY-MM-DD), UTC end-of-day. Applied to each account at approval
+# time - editable per-account afterwards from /admin/accounts, so extending
+# one customer's trial never requires a code change.
+DEFAULT_TRIAL_END_DATE = _env("DEFAULT_TRIAL_END_DATE", "2026-08-31")
+
 # --- Behaviour --------------------------------------------------------------
 AGENT_NAME = _env("AGENT_NAME", "Indish Marketer Assistant")
 BRAND_NAME = _env("BRAND_NAME", "Indish Marketer")

@@ -18,8 +18,7 @@ The prompt has two layers, deliberately kept separate:
 """
 from typing import Any, Optional
 
-from . import branding, config, store
-from .knowledge import KB
+from . import branding, config, knowledge, store
 
 FIXED_PREFIX_TEMPLATE = """You are {agent_name}, the voice receptionist for {brand}.
 
@@ -83,7 +82,8 @@ def active_behavior_rules() -> str:
 
 
 def build_system_prompt(user_text: str, visitor: Optional[dict[str, Any]] = None,
-                        history_hint: str = "") -> str:
+                        history_hint: str = "",
+                        account_id: Optional[int] = None) -> str:
     current_branding = branding.get_branding()
     fixed = FIXED_PREFIX_TEMPLATE.format(
         agent_name=current_branding["agent_name"],
@@ -92,9 +92,9 @@ def build_system_prompt(user_text: str, visitor: Optional[dict[str, Any]] = None
     )
     parts = [fixed, active_behavior_rules()]
 
-    knowledge = KB.context_for(user_text)
-    if knowledge:
-        parts.append("=== COMPANY KNOWLEDGE ===\n" + knowledge)
+    kb_context = knowledge.get_kb(account_id).context_for(user_text)
+    if kb_context:
+        parts.append("=== COMPANY KNOWLEDGE ===\n" + kb_context)
 
     memory = _memory_block(visitor, history_hint)
     if memory:

@@ -20,11 +20,25 @@
 {% endmacro %}
 
 {% block topbar_right %}
+{% if is_super %}
 <span class="pill-status"><span class="live-dot"></span>{{ active }} call(s) in progress</span>
+{% endif %}
 <span class="pill-status">{{ usage.day }} UTC</span>
 {% endblock %}
 
 {% block content %}
+{% if not is_super and account %}
+<div class="panel" style="margin-bottom:24px;display:flex;gap:18px;flex-wrap:wrap;align-items:center">
+    <div style="flex:1;min-width:220px">
+        <p style="margin:0 0 4px;font-weight:600">
+            {% if account.plan_type == 'trial' %}Free trial{% else %}{{ account.plan_type | capitalize }} plan{% endif %}
+            {% if account.trial_ends %} · ends {{ account.trial_ends }}{% endif %}
+        </p>
+        <p class="hint" style="margin:0">{{ account.daily_minutes_limit }} minutes/day included · resets daily at midnight UTC</p>
+    </div>
+    <a class="btn ghost" href="/{{ '?account=' + account.slug }}" target="_blank" rel="noopener" style="text-decoration:none">Open your agent</a>
+</div>
+{% endif %}
 <h2 class="section">Usage</h2>
 <div class="cards">
     <div class="card">
@@ -63,6 +77,7 @@
     </div>
 </div>
 
+{% if is_super %}
 <h2 class="section">Protection</h2>
 <div class="cards">
     <div class="card">
@@ -119,11 +134,13 @@
     <button type="button" id="copy-link">Copy link</button>
     <span id="copy-out" class="status-msg"></span>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block script_extra %}
 <script>
-document.getElementById("copy-link").addEventListener("click", async () => {
+const copyLinkBtn = document.getElementById("copy-link");
+if (copyLinkBtn) copyLinkBtn.addEventListener("click", async () => {
     const input = document.getElementById("owner-link");
     const out = document.getElementById("copy-out");
     try {

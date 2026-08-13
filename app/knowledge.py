@@ -12,6 +12,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from . import config
@@ -46,8 +47,7 @@ class KnowledgeBase:
         self._avg_len: float = 1.0
 
     # -- loading --
-    def load(self) -> None:
-        directory = config.KNOWLEDGE_DIR
+    def load(self, directory: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         paths = sorted(p for p in directory.glob("*.md") if p.is_file())
 
@@ -151,4 +151,39 @@ def _bm25(query: str, chunks: list[Chunk], df: dict[str, int],
     return scored
 
 
-KB = KnowledgeBase()
+def dir_for(account_id: Optional[int]) -> Path:
+    """None is the original single-tenant agent - keeps reading the same
+    knowledge/ folder it always has, so nothing about the live deployment
+    changes. Each sub-account gets its own folder on the data volume, so
+    uploading a doc for one business can never leak into another's answers."""
+    if account_id is None:
+        return config.KNOWLEDGE_DIR
+    return config.DATA_DIR / "accounts" / str(account_id) / "knowledge"
+
+
+_registry: dict[Optional[int], KnowledgeBase] = {}
+_registry_lock = threading.Lock()
+
+
+def get_kb(account_id: Optional[int] = None) -> KnowledgeBase:
+    """Lazily loads and caches one KnowledgeBase per account, so a quiet
+    sub-account with no traffic costs nothing until its first call."""
+    with _registry_lock:
+        kb = _registry.get(account_id)
+        if kb is not None:
+            return kb
+    kb = KnowledgeBase()
+    kb.load(dir_for(account_id))
+    with _registry_lock:
+        _registry[account_id] = kb
+    return kb
+
+
+def reload_kb(account_id: Optional[int] = None) -> KnowledgeBase:
+    """Forces a fresh read from disk - called right after an admin uploads a
+    knowledge file for this account."""
+    kb = _registry.get(account_id)
+    if kb is None:
+        return get_kb(account_id)
+    kb.load(dir_for(account_id))
+    return kb
