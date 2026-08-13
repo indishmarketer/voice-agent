@@ -1576,10 +1576,12 @@ async def apply_page(request: Request) -> Response:
         "apply.html",
         {
             "request": request,
-            "brand": branding.get_branding()["brand_name"],
+            # config.BRAND_NAME, not branding.get_branding() - the marketing
+            # page's own name should not silently follow whatever the owner
+            # later renames their live agent's brand_name setting to.
+            "brand": config.BRAND_NAME,
             "spots_left": spots_left,
             "trial_end": config.DEFAULT_TRIAL_END_DATE,
-            "daily_minutes": config.DEFAULT_TRIAL_DAILY_SECONDS // 60,
         },
     )
 

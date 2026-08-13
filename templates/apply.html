@@ -80,18 +80,20 @@
 </head>
 <body>
     <div class="card">
-        {% if spots_left > 0 %}
-        <div class="pill">{{ spots_left }} beta spot{{ "s" if spots_left != 1 else "" }} left</div>
-        {% else %}
-        <div class="pill" style="background: var(--danger-bg); color: var(--danger);">Beta is full</div>
-        {% endif %}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+            {% if spots_left > 0 %}
+            <div class="pill">{{ spots_left }} beta spot{{ "s" if spots_left != 1 else "" }} left</div>
+            {% else %}
+            <div class="pill" style="background: var(--danger-bg); color: var(--danger);">Beta is full</div>
+            {% endif %}
+            <div class="pill" style="background: var(--primary); color: #fff;">Free until {{ trial_end }}</div>
+        </div>
 
         <div id="form-view">
-            <h1>Apply for {{ brand }} beta access</h1>
+            <h1>Apply for your personalized voice agent</h1>
             <p class="lead">
-                Get your own AI voice agent, trained on your business, embeddable
-                on your website. Free until {{ trial_end }}, up to
-                {{ daily_minutes }} minutes/day - then continue on a paid plan.
+                Get your own voice agent, trained on your business and
+                embeddable on your website.
             </p>
 
             <form id="apply-form">
@@ -105,10 +107,6 @@
                 <label for="website">Website</label>
                 <input id="website" name="website" type="text" required maxlength="200"
                        placeholder="https://yourbusiness.com">
-                <p class="hint" style="margin:-8px 0 0;font-size:11.5px">
-                    Callers are pointed here whenever they've reached a limit or
-                    the call ends - don't have one yet? Make one first.
-                </p>
 
                 <label for="country">Country</label>
                 <select id="country" name="country" required>
