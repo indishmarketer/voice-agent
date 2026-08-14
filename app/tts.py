@@ -23,14 +23,17 @@ AudioSink = Callable[[bytes], Awaitable[None]]
 class FishStream:
     """One synthesis session. Open early, feed clauses, then finish."""
 
-    def __init__(self, voice_id: Optional[str] = None) -> None:
+    def __init__(self, voice_id: Optional[str] = None, api_key: Optional[str] = None,
+                model: Optional[str] = None) -> None:
         self.voice_id = voice_id or integrations.fish_model_id()
+        self.api_key = api_key or integrations.fish_api_key()
+        self.model = model or integrations.fish_model()
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
 
     async def open(self, attempts: int = 2) -> None:
         headers = {
-            "Authorization": f"Bearer {integrations.fish_api_key()}",
-            "model": integrations.fish_model(),
+            "Authorization": f"Bearer {self.api_key}",
+            "model": self.model,
         }
         last: Optional[Exception] = None
         for attempt in range(attempts):
@@ -118,9 +121,10 @@ class FishStream:
             self._ws = None
 
 
-async def synthesize(text: str, voice_id: Optional[str] = None) -> bytes:
+async def synthesize(text: str, voice_id: Optional[str] = None,
+                     api_key: Optional[str] = None, model: Optional[str] = None) -> bytes:
     """One-shot synthesis. Used off the call path to pre-render filler clips."""
-    stream = FishStream(voice_id)
+    stream = FishStream(voice_id, api_key, model)
     frames: list[bytes] = []
     try:
         await stream.open()
@@ -135,7 +139,8 @@ async def synthesize(text: str, voice_id: Optional[str] = None) -> bytes:
 
 
 async def speak(clauses: AsyncIterator[str], sink: AudioSink,
-                cancel: asyncio.Event, voice_id: Optional[str] = None) -> str:
+                cancel: asyncio.Event, voice_id: Optional[str] = None,
+                api_key: Optional[str] = None, model: Optional[str] = None) -> str:
     """Drive a full turn: feed clauses in, push PCM out, honour barge-in.
 
     Returns the text that was actually spoken.
@@ -149,7 +154,7 @@ async def speak(clauses: AsyncIterator[str], sink: AudioSink,
     everything else that ends with nothing to play IS one, so it is raised
     here and left for the caller to turn into a client-facing message.
     """
-    stream = FishStream(voice_id)
+    stream = FishStream(voice_id, api_key, model)
     spoken: list[str] = []
 
     # Opening the socket costs the best part of a second, and so does the first

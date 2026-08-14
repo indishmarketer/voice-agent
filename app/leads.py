@@ -48,7 +48,8 @@ def extract_phone(text: str) -> Optional[str]:
     return re.sub(r"[^\d+]", "", match.group(0)) if match else None
 
 
-async def extract_contact_reply(text: str) -> dict[str, Any]:
+async def extract_contact_reply(text: str, api_key: Optional[str] = None,
+                                model: Optional[str] = None) -> dict[str, Any]:
     """Live, mid-call extraction of name/email/phone from the caller's answer
     to the contact-collection question.
 
@@ -69,6 +70,8 @@ async def extract_contact_reply(text: str) -> dict[str, Any]:
                 {"role": "user", "content": text},
             ],
             max_tokens=150,
+            api_key=api_key,
+            model=model,
         )
         parsed = llm.parse_json_object(raw)
         for key in ("name", "email", "phone"):
@@ -86,7 +89,8 @@ async def extract_contact_reply(text: str) -> dict[str, Any]:
     return result
 
 
-async def extract_confirmation_reply(text: str) -> dict[str, Any]:
+async def extract_confirmation_reply(text: str, api_key: Optional[str] = None,
+                                     model: Optional[str] = None) -> dict[str, Any]:
     """Live extraction for the caller's reply to "is that correct?" after the
     backend reads their collected name/email/phone back to them. Separate
     from extract_contact_reply above because a plain "yes" here means
@@ -101,6 +105,8 @@ async def extract_confirmation_reply(text: str) -> dict[str, Any]:
                 {"role": "user", "content": text},
             ],
             max_tokens=150,
+            api_key=api_key,
+            model=model,
         )
         parsed = llm.parse_json_object(raw)
         result["confirmed"] = bool(parsed.get("confirmed"))
@@ -125,7 +131,9 @@ async def extract_confirmation_reply(text: str) -> dict[str, Any]:
 async def process_session(session_id: str, visitor_id: str,
                           turns: list[dict[str, Any]],
                           confirmed_contact: Optional[dict[str, Any]] = None,
-                          account_id: Optional[int] = None) -> None:
+                          account_id: Optional[int] = None,
+                          api_key: Optional[str] = None,
+                          model: Optional[str] = None) -> None:
     """Summarise the call, pull out contact details, persist and sync.
 
     `confirmed_contact` is the name/email/phone the caller explicitly
@@ -150,6 +158,8 @@ async def process_session(session_id: str, visitor_id: str,
                 {"role": "user", "content": transcript},
             ],
             max_tokens=140,
+            api_key=api_key,
+            model=model,
         )
     except Exception as exc:
         log.warning("summary failed for %s: %s", session_id, exc)
@@ -162,6 +172,8 @@ async def process_session(session_id: str, visitor_id: str,
                 {"role": "user", "content": transcript},
             ],
             max_tokens=300,
+            api_key=api_key,
+            model=model,
         )
         data = llm.parse_json_object(raw)
     except Exception as exc:

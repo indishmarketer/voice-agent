@@ -13,7 +13,17 @@ our own infrastructure, not a third-party service, so they stay in Coolify.
 Everything below talks to a service outside our control - AssemblyAI,
 Pollinations, Fish Audio, Cloudflare Turnstile. Keys rotate and model
 lineups change; a text-box edit here should be enough to react to that.
+
+resolve_for_account() is the one-time plan's whole mechanism: those
+customers own their own usage cost (that is the entire point of the plan,
+per pricing.md), so their calls resolve to ONLY their own stored keys -
+deliberately no fallback to the owner's global ones, or the owner would
+silently keep paying for their traffic. Every other case (the main account,
+and trial/subscription sub-accounts, where the owner is paying either way)
+resolves to the shared global configuration exactly as before this existed.
 """
+from typing import Optional
+
 from . import config, store
 
 SETTINGS_KEY_ASSEMBLYAI_API_KEY = "assemblyai_api_key"
@@ -83,6 +93,67 @@ def get_models() -> dict[str, str]:
         "pollinations_model": pollinations_model(),
         "fish_model": fish_model(),
         "aai_speech_model": aai_speech_model(),
+    }
+
+
+def resolve_for_account(account_id: Optional[int], plan_type: str = "trial") -> dict[str, str]:
+    """The actual credentials/models one call should use, resolved once per
+    session rather than read live from a client-supplied value - see the
+    module docstring for why the one-time plan does not fall back to the
+    global keys."""
+    if account_id is not None and plan_type == "onetime":
+        # fish_model_id (the voice reference) is included here deliberately,
+        # unlike the curated preset system in voices.py - a Fish Audio voice
+        # clone belongs to whichever account created it, so the owner's own
+        # voice id would not work against a different account's API key.
+        # An account on this plan has to bring its own voice, not pick from
+        # the shared presets.
+        return {
+            "assemblyai_api_key": store.get_setting(SETTINGS_KEY_ASSEMBLYAI_API_KEY, "", account_id),
+            "pollinations_api_key": store.get_setting(SETTINGS_KEY_POLLINATIONS_API_KEY, "", account_id),
+            "fish_api_key": store.get_setting(SETTINGS_KEY_FISH_API_KEY, "", account_id),
+            "fish_model_id": store.get_setting(SETTINGS_KEY_FISH_MODEL_ID, "", account_id),
+            "pollinations_model": store.get_setting(
+                SETTINGS_KEY_POLLINATIONS_MODEL, config.POLLINATIONS_MODEL, account_id
+            ),
+            "fish_model": store.get_setting(
+                SETTINGS_KEY_FISH_MODEL, config.FISH_MODEL, account_id
+            ),
+            "aai_speech_model": store.get_setting(
+                SETTINGS_KEY_AAI_SPEECH_MODEL, config.AAI_SPEECH_MODEL, account_id
+            ),
+        }
+    return {
+        "assemblyai_api_key": assemblyai_api_key(),
+        "pollinations_api_key": pollinations_api_key(),
+        "fish_api_key": fish_api_key(),
+        "fish_model_id": fish_model_id(),
+        "pollinations_model": pollinations_model(),
+        "fish_model": fish_model(),
+        "aai_speech_model": aai_speech_model(),
+    }
+
+
+def onetime_keys_configured(account_id: int) -> bool:
+    """Whether a one-time-plan account has entered its own keys AND its own
+    voice id yet - used to block its calls outright (with a clear message)
+    rather than let resolve_for_account hand back empty strings that would
+    just fail confusingly deep inside a provider call."""
+    creds = resolve_for_account(account_id, "onetime")
+    return bool(creds["assemblyai_api_key"] and creds["pollinations_api_key"]
+               and creds["fish_api_key"] and creds["fish_model_id"])
+
+
+def account_provider_keys(account_id: int) -> dict[str, str]:
+    """Raw values for the account's own /admin/settings provider-keys form -
+    unlike resolve_for_account, this does not care what plan_type is, since
+    the form itself is what a sub-account uses to enter them in the first
+    place."""
+    return {
+        "assemblyai_api_key": store.get_setting(SETTINGS_KEY_ASSEMBLYAI_API_KEY, "", account_id),
+        "pollinations_api_key": store.get_setting(SETTINGS_KEY_POLLINATIONS_API_KEY, "", account_id),
+        "fish_api_key": store.get_setting(SETTINGS_KEY_FISH_API_KEY, "", account_id),
+        "fish_model_id": store.get_setting(SETTINGS_KEY_FISH_MODEL_ID, "", account_id),
     }
 
 

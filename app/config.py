@@ -99,6 +99,15 @@ DEFAULT_TRIAL_DAILY_SECONDS = _int("DEFAULT_TRIAL_DAILY_SECONDS", 20 * 60)
 # time - editable per-account afterwards from /admin/accounts, so extending
 # one customer's trial never requires a code change.
 DEFAULT_TRIAL_END_DATE = _env("DEFAULT_TRIAL_END_DATE", "2026-08-31")
+# Once DEFAULT_TRIAL_END_DATE has passed, a newly approved account gets a
+# rolling trial this many days from its own approval time instead of the
+# fixed cutoff - matches what /apply's copy promises ("free until the
+# cutoff, then a N-day trial for anyone after that").
+TRIAL_DAYS_AFTER_CUTOFF = _int("TRIAL_DAYS_AFTER_CUTOFF", 3)
+# Fair-use ceiling for the "subscription" plan, where the owner pays for
+# every minute - the "one-time" plan is unmetered here since the customer's
+# own provider keys pay for their own usage instead.
+SUBSCRIPTION_MONTHLY_MINUTES_CAP = _int("SUBSCRIPTION_MONTHLY_MINUTES_CAP", 500)
 
 # --- Behaviour --------------------------------------------------------------
 AGENT_NAME = _env("AGENT_NAME", "Indish Marketer Assistant")

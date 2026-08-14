@@ -77,6 +77,11 @@ async def send_limit_reached(to_email: str, business_name: str, reason: str) -> 
         subject = f"{business_name}: your free trial has ended"
         body = ("<p>Your free trial on the voice agent has ended. Reply to "
                 "this email to subscribe and keep it running.</p>")
+    elif reason == "account_monthly_cap":
+        subject = f"{business_name}: this month's fair-use limit reached"
+        body = ("<p>Your voice agent has hit this month's fair-use minutes "
+                "limit on your subscription. It resets next month, or reply "
+                "to this email if you need a higher limit.</p>")
     else:
         subject = f"{business_name}: today's free minutes are used up"
         body = ("<p>Your voice agent hit today's free usage limit. It will "

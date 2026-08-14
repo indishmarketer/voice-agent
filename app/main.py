@@ -221,11 +221,6 @@ async def healthz() -> str:
 
 @app.post("/api/session/start")
 async def start_session(request: Request) -> Response:
-    if integrations.missing_required():
-        return JSONResponse(
-            {"error": "The agent is not configured yet."}, status_code=503
-        )
-
     origin = request.headers.get("origin", "")
     if origin and not security.origin_allowed(origin):
         return JSONResponse({"error": "Not allowed from this site."}, status_code=403)
@@ -240,6 +235,26 @@ async def start_session(request: Request) -> Response:
         return JSONResponse({"error": "This voice agent is not available."},
                             status_code=404)
     account_id = account["id"] if account else None
+    plan_type = account["plan_type"] if account else "trial"
+
+    # The one-time plan's whole mechanism is that the customer's own keys
+    # pay for their own usage - if they have not entered them yet, this must
+    # not silently fall back to the owner's global keys (which would mean
+    # the owner pays after all), so it is blocked outright with a clear
+    # message instead of failing confusingly deep inside a provider call.
+    if account_id is not None and plan_type == "onetime" and \
+            not integrations.onetime_keys_configured(account_id):
+        return JSONResponse(
+            {"error": "This voice agent's owner needs to add their own API keys "
+                      "before it can take calls - see Settings in their dashboard."},
+            status_code=503,
+        )
+    credentials = integrations.resolve_for_account(account_id, plan_type)
+    if not (credentials["assemblyai_api_key"] and credentials["pollinations_api_key"]
+           and credentials["fish_api_key"]):
+        return JSONResponse(
+            {"error": "The agent is not configured yet."}, status_code=503
+        )
 
     ip = security.client_ip(request)
     ip_hash = security.hash_ip(ip)
@@ -282,11 +297,13 @@ async def start_session(request: Request) -> Response:
         try:
             security.check_account(account)
             security.check_account_daily_cap(account)
+            security.check_account_monthly_cap(account)
             security.enforce_quotas(ip_hash, scoped_visitor_id, account_id)
         except security.Denied as denied:
             log.info("session denied (%s) ip=%s account=%s", denied.reason,
                      ip_hash[:8], account_id)
-            if account and denied.reason in ("trial_expired", "account_daily_cap"):
+            if account and denied.reason in ("trial_expired", "account_daily_cap",
+                                             "account_monthly_cap"):
                 asyncio.create_task(_maybe_notify_limit(account, denied.reason))
             return JSONResponse({"error": denied.message}, status_code=denied.status)
 
@@ -297,7 +314,7 @@ async def start_session(request: Request) -> Response:
         return JSONResponse({"error": denied.message}, status_code=denied.status)
 
     try:
-        aai_token = await stt.mint_token()
+        aai_token = await stt.mint_token(credentials["assemblyai_api_key"])
     except Exception as exc:
         security.release_slot(session_id)
         log.error("token mint failed: %s", exc)
@@ -314,7 +331,7 @@ async def start_session(request: Request) -> Response:
             {"sid": session_id, "vid": scoped_visitor_id, "aid": account_id},
             config.SESSION_MAX_SECONDS + 120,
         ),
-        "stt_ws_url": stt.websocket_url(aai_token),
+        "stt_ws_url": stt.websocket_url(aai_token, credentials["aai_speech_model"]),
         "stt_sample_rate": config.AAI_SAMPLE_RATE,
         "audio_sample_rate": config.FISH_SAMPLE_RATE,
         "max_seconds": config.SESSION_MAX_SECONDS,
@@ -331,16 +348,24 @@ class Call:
     """State for one websocket conversation."""
 
     def __init__(self, ws: WebSocket, session_id: str, visitor_id: str,
-                account_id: Optional[int] = None) -> None:
+                account_id: Optional[int] = None,
+                credentials: Optional[dict[str, str]] = None,
+                plan_type: str = "trial") -> None:
         self.ws = ws
         self.session_id = session_id
         self.visitor_id = visitor_id
         self.account_id = account_id
-        # Resolved once here rather than looked up per-turn: None (a
-        # sub-account on the "Indian English (Male)" preset, or the main
-        # account) means "the owner's own configured voice", so this is
-        # always a concrete Fish Audio id from here on.
-        self.voice_id = voices.account_fish_model_id(account_id) or integrations.fish_model_id()
+        self.credentials = credentials or integrations.resolve_for_account(account_id, plan_type)
+        # Resolved once here rather than looked up per-turn. A one-time-plan
+        # account brings its own voice (see resolve_for_account - a Fish
+        # Audio voice clone belongs to whoever created it, so the owner's
+        # own voice id would not work against a different account's API
+        # key); everyone else picks from the shared curated presets, where
+        # None means "the owner's own configured voice".
+        if account_id is not None and plan_type == "onetime":
+            self.voice_id = self.credentials.get("fish_model_id") or ""
+        else:
+            self.voice_id = voices.account_fish_model_id(account_id) or integrations.fish_model_id()
         self.started = time.monotonic()
         self.history: list[dict[str, str]] = []
         self.turn_count = 0
@@ -450,8 +475,16 @@ async def agent_socket(ws: WebSocket) -> None:
     visitor_id = claims["vid"]
     account_id = claims.get("aid")
 
+    # Credentials are resolved fresh here, server-side, rather than carried
+    # in the token - the token is visible to whoever is on the call (a
+    # random website visitor, not necessarily the business owner), so
+    # embedding real provider API keys in it would leak them to every caller.
+    account = store.get_account(account_id) if account_id is not None else None
+    plan_type = account["plan_type"] if account else "trial"
+    credentials = integrations.resolve_for_account(account_id, plan_type)
+
     await ws.accept()
-    call = Call(ws, session_id, visitor_id, account_id)
+    call = Call(ws, session_id, visitor_id, account_id, credentials, plan_type)
     log.info("call %s started (visitor %s, account %s)", session_id[:8],
              visitor_id[:8], account_id)
 
@@ -474,7 +507,7 @@ async def agent_socket(ws: WebSocket) -> None:
         if call.history:
             asyncio.create_task(
                 _finalise(session_id, visitor_id, list(call.history),
-                         call.contact_confirmed_data, call.account_id)
+                         call.contact_confirmed_data, call.account_id, call.credentials)
             )
         log.info("call %s ended after %.0fs, %d turns",
                  session_id[:8], call.elapsed, call.turn_count)
@@ -483,10 +516,14 @@ async def agent_socket(ws: WebSocket) -> None:
 async def _finalise(session_id: str, visitor_id: str,
                     history: list[dict[str, str]],
                     confirmed_contact: Optional[dict[str, Any]] = None,
-                    account_id: Optional[int] = None) -> None:
+                    account_id: Optional[int] = None,
+                    credentials: Optional[dict[str, str]] = None) -> None:
+    creds = credentials or integrations.resolve_for_account(account_id)
     with contextlib.suppress(Exception):
-        await leads.process_session(session_id, visitor_id, history,
-                                    confirmed_contact, account_id)
+        await leads.process_session(
+            session_id, visitor_id, history, confirmed_contact, account_id,
+            api_key=creds["pollinations_api_key"], model=creds["pollinations_model"],
+        )
 
 
 async def _watchdog(call: Call) -> None:
@@ -670,7 +707,11 @@ async def _respond_with_llm(call: Call, text: str) -> None:
 
     marker_flag = {"seen": False}
     clauses = _strip_contact_marker(
-        llm.limit(llm.sentences(llm.stream_reply(messages)), config.MAX_REPLY_CHARS),
+        llm.limit(llm.sentences(llm.stream_reply(
+            messages,
+            api_key=call.credentials["pollinations_api_key"],
+            model=call.credentials["pollinations_model"],
+        )), config.MAX_REPLY_CHARS),
         marker_flag,
     )
     try:
@@ -830,7 +871,10 @@ async def _handle_contact_reply(call: Call, text: str) -> None:
 
 async def _handle_contact_field_reply(call: Call, text: str) -> None:
     field = call.contact_step
-    data = await leads.extract_contact_reply(text)
+    data = await leads.extract_contact_reply(
+        text, api_key=call.credentials["pollinations_api_key"],
+        model=call.credentials["pollinations_model"],
+    )
 
     if data.get("declined"):
         if field == "phone":
@@ -870,7 +914,10 @@ async def _handle_contact_field_reply(call: Call, text: str) -> None:
 
 
 async def _handle_contact_confirmation_reply(call: Call, text: str) -> None:
-    data = await leads.extract_confirmation_reply(text)
+    data = await leads.extract_confirmation_reply(
+        text, api_key=call.credentials["pollinations_api_key"],
+        model=call.credentials["pollinations_model"],
+    )
 
     corrected = False
     for key in ("name", "email", "phone"):
@@ -932,7 +979,9 @@ async def _speak(call: Call, clauses: AsyncIterator[str],
 
     async def run() -> str:
         return await tts.speak(relay(clauses), call.send_audio, call.cancel,
-                               voice_id=call.voice_id)
+                               voice_id=call.voice_id,
+                               api_key=call.credentials["fish_api_key"],
+                               model=call.credentials["fish_model"])
 
     task = asyncio.create_task(run())
     call.speaking = task
@@ -1299,6 +1348,15 @@ async def admin_settings_page(request: Request,
             ],
             "current_voice_preset": voices.account_voice_preset(admin["account_id"]),
         })
+        account = admin.get("account")
+        if account and account["plan_type"] == "onetime":
+            own_keys = integrations.account_provider_keys(admin["account_id"])
+            ctx.update({
+                "own_assemblyai_key_hint": _mask_secret(own_keys["assemblyai_api_key"]),
+                "own_pollinations_key_hint": _mask_secret(own_keys["pollinations_api_key"]),
+                "own_fish_key_hint": _mask_secret(own_keys["fish_api_key"]),
+                "own_fish_model_id": own_keys["fish_model_id"],
+            })
     return templates.TemplateResponse("admin_settings.html", ctx)
 
 
@@ -1397,9 +1455,11 @@ MODEL_SETTINGS_FIELDS = {
 
 
 def _save_text_settings(body: dict[str, Any], fields: dict[str, str],
-                        max_len: int = 200) -> Optional[JSONResponse]:
+                        max_len: int = 200,
+                        account_id: Optional[int] = None) -> Optional[JSONResponse]:
     """Shared save logic for the several small "a few text fields, blank
-    means leave unchanged" forms on /admin/integrations. Returns an error
+    means leave unchanged" forms on /admin/integrations (and, scoped by
+    account_id, a sub-account's own provider-keys form). Returns an error
     response to return immediately, or None on success."""
     updates: dict[str, str] = {}
     for field_name, settings_key in fields.items():
@@ -1415,7 +1475,7 @@ def _save_text_settings(body: dict[str, Any], fields: dict[str, str],
         if value:
             updates[settings_key] = value
     for settings_key, value in updates.items():
-        store.set_setting(settings_key, value)
+        store.set_setting(settings_key, value, account_id)
     return None
 
 
@@ -1454,6 +1514,30 @@ async def save_provider_keys(request: Request,
         return error
 
     log.info("admin updated provider API keys/voice ID")
+    return JSONResponse({"ok": True})
+
+
+@app.post("/admin/settings/provider-keys")
+async def save_account_provider_keys(request: Request,
+                                     admin: dict[str, Any] = Depends(_require_admin)) -> Response:
+    """The one-time plan's own version of /admin/integrations/keys - only
+    reachable for a sub-account, and only meaningful on that plan (the
+    field only appears in the UI there), but not hard-blocked for any other
+    plan since a customer might enter keys ahead of switching plans."""
+    if admin["account_id"] is None:
+        return JSONResponse(
+            {"error": "Not available for the main account."}, status_code=400
+        )
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+
+    error = _save_text_settings(body, PROVIDER_KEY_FIELDS, max_len=300,
+                                account_id=admin["account_id"])
+    if error:
+        return error
+
+    log.info("account %s updated their own provider keys", admin["account_id"])
     return JSONResponse({"ok": True})
 
 
@@ -1581,6 +1665,23 @@ def _slugify(business_name: str) -> str:
     return base
 
 
+def _default_trial_end_date() -> str:
+    """The trial end date a NEW approval gets when the admin does not type
+    an override: the fixed beta cutoff while it is still in the future, or
+    a rolling N-day trial from right now once that cutoff has passed - this
+    is what /apply's copy promises ("free until the cutoff, then a 3-day
+    trial for anyone after that"), so approval has to actually follow it
+    rather than freeze on the original cutoff forever."""
+    cutoff = datetime.datetime.strptime(
+        config.DEFAULT_TRIAL_END_DATE, "%Y-%m-%d"
+    ).replace(hour=23, minute=59, second=59, tzinfo=datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if now < cutoff:
+        return config.DEFAULT_TRIAL_END_DATE
+    rolling = now + datetime.timedelta(days=config.TRIAL_DAYS_AFTER_CUTOFF)
+    return rolling.strftime("%Y-%m-%d")
+
+
 def _ordinal_date(iso_date: str) -> str:
     """"2026-08-31" -> "31st August" - falls back to the raw string if it is
     not a plain ISO date, rather than raising on a malformed config value."""
@@ -1688,7 +1789,7 @@ async def admin_accounts_page(request: Request,
         "accounts": accounts_out,
         "max_accounts": config.MAX_ACCOUNTS,
         "approved_count": store.count_approved_accounts(),
-        "default_trial_end": config.DEFAULT_TRIAL_END_DATE,
+        "default_trial_end": _default_trial_end_date(),
         "default_daily_minutes": config.DEFAULT_TRIAL_DAILY_SECONDS // 60,
         "root_domain": config.PLATFORM_ROOT_DOMAIN,
     })
@@ -1713,7 +1814,7 @@ async def admin_accounts_approve(request: Request,
         return JSONResponse({"error": f"Already at the {config.MAX_ACCOUNTS}-account limit."},
                             status_code=403)
 
-    trial_end_str = (body.get("trial_ends_at") or config.DEFAULT_TRIAL_END_DATE).strip()
+    trial_end_str = (body.get("trial_ends_at") or _default_trial_end_date()).strip()
     daily_minutes = int(body.get("daily_minutes_limit") or (config.DEFAULT_TRIAL_DAILY_SECONDS // 60))
     trial_ends_at = None
     if trial_end_str:

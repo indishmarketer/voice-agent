@@ -285,6 +285,19 @@ def stt_seconds_today(account_id: Optional[int] = None) -> float:
     return float(row[0]["s"])
 
 
+def stt_seconds_this_month(account_id: int) -> float:
+    """The subscription plan's fair-use cap resets monthly, not daily - the
+    day column is 'YYYY-MM-DD', so a LIKE prefix match on the current
+    year-month covers the whole month in one query."""
+    month_prefix = datetime.now(timezone.utc).strftime("%Y-%m")
+    row = _query(
+        "SELECT COALESCE(SUM(stt_seconds), 0) s FROM sessions "
+        "WHERE account_id = ? AND day LIKE ?",
+        (account_id, f"{month_prefix}-%"),
+    )
+    return float(row[0]["s"])
+
+
 # --- Transcript -------------------------------------------------------------
 
 def add_turn(session_id: str, visitor_id: str, role: str, content: str,

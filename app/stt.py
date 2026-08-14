@@ -9,6 +9,7 @@ The token is the enforcement point that matters. AssemblyAI honours
 more than one short session of our free-tier hours.
 """
 import logging
+from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -18,7 +19,7 @@ from . import config, integrations
 log = logging.getLogger("stt")
 
 
-async def mint_token() -> str:
+async def mint_token(api_key: Optional[str] = None) -> str:
     params = {
         "expires_in_seconds": 60,  # must be redeemed almost immediately
         "max_session_duration_seconds": max(60, config.SESSION_MAX_SECONDS),
@@ -26,7 +27,7 @@ async def mint_token() -> str:
     async with httpx.AsyncClient(timeout=10) as client:
         response = await client.get(
             f"{config.AAI_TOKEN_URL}?{urlencode(params)}",
-            headers={"Authorization": integrations.assemblyai_api_key()},
+            headers={"Authorization": api_key or integrations.assemblyai_api_key()},
         )
     if response.status_code != 200:
         log.error("assemblyai token mint failed %s: %s",
@@ -38,7 +39,7 @@ async def mint_token() -> str:
     return token
 
 
-def websocket_url(token: str) -> str:
+def websocket_url(token: str, speech_model: Optional[str] = None) -> str:
     """The URL the browser opens.
 
     Originally tuned aggressively for low latency (0.4 / 400ms), which meant a
@@ -51,7 +52,7 @@ def websocket_url(token: str) -> str:
         "token": token,
         "sample_rate": config.AAI_SAMPLE_RATE,
         "encoding": "pcm_s16le",
-        "speech_model": integrations.aai_speech_model(),
+        "speech_model": speech_model or integrations.aai_speech_model(),
         "format_turns": "true",
         "end_of_turn_confidence_threshold": "0.7",
         "min_turn_silence": "600",

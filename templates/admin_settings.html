@@ -64,6 +64,49 @@
 </div>
 {% endif %}
 
+{% if own_fish_model_id is defined %}
+<h2 class="section">Your API keys</h2>
+<div class="panel" style="margin-bottom:22px">
+    <p class="hint" style="margin-bottom:14px">
+        On the one-time plan, your own keys pay for your own usage - we only
+        cover hosting. Nothing here is shared with any other account, and
+        your agent cannot take calls until all four fields below are filled in.
+    </p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:14px;margin-bottom:14px">
+        <div>
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">
+                AssemblyAI API key{% if own_assemblyai_key_hint %} <span class="hint">(currently ending in …{{ own_assemblyai_key_hint }})</span>{% endif %}
+            </label>
+            <input type="text" id="own-assemblyai-key" placeholder="Paste to replace" style="width:100%">
+        </div>
+        <div>
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">
+                Pollinations API key{% if own_pollinations_key_hint %} <span class="hint">(currently ending in …{{ own_pollinations_key_hint }})</span>{% endif %}
+            </label>
+            <input type="text" id="own-pollinations-key" placeholder="Paste to replace" style="width:100%">
+        </div>
+        <div>
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">
+                Fish Audio API key{% if own_fish_key_hint %} <span class="hint">(currently ending in …{{ own_fish_key_hint }})</span>{% endif %}
+            </label>
+            <input type="text" id="own-fish-key" placeholder="Paste to replace" style="width:100%">
+        </div>
+        <div>
+            <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Fish Audio voice ID</label>
+            <input type="text" id="own-fish-model-id" value="{{ own_fish_model_id }}"
+                   placeholder="A voice from YOUR OWN Fish Audio account" style="width:100%">
+        </div>
+    </div>
+    <p class="hint" style="margin:0 0 14px;font-size:11.5px">
+        The voice ID has to come from your own Fish Audio account, not ours -
+        a voice belongs to whoever created it, so it only works with that
+        same account's API key.
+    </p>
+    <button type="button" id="save-own-keys">Save keys</button>
+    <span id="own-keys-out" class="status-msg"></span>
+</div>
+{% endif %}
+
 <h2 class="section">Agent behaviour</h2>
 <div class="panel">
     <p class="hint" style="margin-bottom:14px">
@@ -117,6 +160,34 @@ if (voiceSelect) {
         } catch (_) {
             voiceOut.textContent = "Could not save - please try again.";
             voiceOut.className = "status-msg err";
+        }
+    });
+}
+
+const saveOwnKeysBtn = document.getElementById("save-own-keys");
+if (saveOwnKeysBtn) {
+    saveOwnKeysBtn.addEventListener("click", async () => {
+        const keysOut = document.getElementById("own-keys-out");
+        keysOut.textContent = "Saving…";
+        keysOut.className = "status-msg";
+        try {
+            const res = await fetch(withToken("/admin/settings/provider-keys"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    assemblyai_api_key: document.getElementById("own-assemblyai-key").value,
+                    pollinations_api_key: document.getElementById("own-pollinations-key").value,
+                    fish_api_key: document.getElementById("own-fish-key").value,
+                    fish_model_id: document.getElementById("own-fish-model-id").value,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || "Could not save.");
+            keysOut.textContent = "Saved.";
+            setTimeout(() => location.reload(), 700);
+        } catch (err) {
+            keysOut.textContent = err.message;
+            keysOut.className = "status-msg err";
         }
     });
 }

@@ -214,10 +214,10 @@ def check_account(account: Optional[dict[str, Any]]) -> None:
 
 
 def check_account_daily_cap(account: Optional[dict[str, Any]]) -> None:
-    """Only the free trial is capped. Once an owner manually marks an account
-    as 'subscription' or 'onetime' (there is no payment gateway wired up yet -
-    see /admin/accounts's "Edit plan"), the daily minutes ledger keeps being
-    recorded for visibility, but no longer blocks calls."""
+    """Only the free trial has a DAILY cap. 'subscription' has its own
+    MONTHLY cap instead (see check_account_monthly_cap below); 'onetime' is
+    unmetered here since the customer's own provider keys pay for their own
+    usage, not the owner's."""
     if account is None or account["plan_type"] != "trial":
         return
     limit_seconds = int(account["daily_minutes_limit"]) * 60
@@ -228,6 +228,24 @@ def check_account_daily_cap(account: Optional[dict[str, Any]]) -> None:
             f"Today's {account['daily_minutes_limit']}-minute free limit has "
             "been used up. Please try again tomorrow, or subscribe for "
             "unlimited access.",
+            429,
+        )
+
+
+def check_account_monthly_cap(account: Optional[dict[str, Any]]) -> None:
+    """The subscription plan's fair-use ceiling - the owner pays for every
+    minute on this plan, unlike 'onetime' where the customer's own keys pay
+    for their own usage, so this is the actual cost-control backstop for it."""
+    if account is None or account["plan_type"] != "subscription":
+        return
+    limit_seconds = config.SUBSCRIPTION_MONTHLY_MINUTES_CAP * 60
+    used = store.stt_seconds_this_month(account["id"])
+    if used >= limit_seconds:
+        raise Denied(
+            "account_monthly_cap",
+            f"This month's {config.SUBSCRIPTION_MONTHLY_MINUTES_CAP}-minute "
+            "fair-use limit has been reached. It resets next month - "
+            "contact us if you need more.",
             429,
         )
 

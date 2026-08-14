@@ -28,15 +28,17 @@ _MIN_STRONG = 8
 _MIN_SOFT = 60
 
 
-def _auth() -> dict[str, str]:
-    return {**_HEADERS, "Authorization": f"Bearer {integrations.pollinations_api_key()}"}
+def _auth(api_key: Optional[str] = None) -> dict[str, str]:
+    return {**_HEADERS, "Authorization": f"Bearer {api_key or integrations.pollinations_api_key()}"}
 
 
 async def stream_reply(messages: list[dict[str, str]],
-                       max_tokens: Optional[int] = None) -> AsyncIterator[str]:
+                       max_tokens: Optional[int] = None,
+                       api_key: Optional[str] = None,
+                       model: Optional[str] = None) -> AsyncIterator[str]:
     """Yield text deltas as the model produces them."""
     payload = {
-        "model": integrations.pollinations_model(),
+        "model": model or integrations.pollinations_model(),
         "messages": messages,
         "stream": True,
         "temperature": config.LLM_TEMPERATURE,
@@ -47,7 +49,7 @@ async def stream_reply(messages: list[dict[str, str]],
         async with client.stream(
             "POST",
             f"{config.POLLINATIONS_BASE}/chat/completions",
-            headers=_auth(),
+            headers=_auth(api_key),
             json=payload,
         ) as response:
             if response.status_code != 200:
@@ -117,10 +119,11 @@ async def limit(clauses: AsyncIterator[str], max_chars: int) -> AsyncIterator[st
             return
 
 
-async def complete(messages: list[dict[str, str]], max_tokens: int = 300) -> str:
+async def complete(messages: list[dict[str, str]], max_tokens: int = 300,
+                   api_key: Optional[str] = None, model: Optional[str] = None) -> str:
     """Blocking single-shot call. Only used after a call ends."""
     payload = {
-        "model": integrations.pollinations_model(),
+        "model": model or integrations.pollinations_model(),
         "messages": messages,
         "temperature": 0.2,
         "max_tokens": max_tokens,
@@ -128,7 +131,7 @@ async def complete(messages: list[dict[str, str]], max_tokens: int = 300) -> str
     async with httpx.AsyncClient(timeout=45) as client:
         response = await client.post(
             f"{config.POLLINATIONS_BASE}/chat/completions",
-            headers=_auth(),
+            headers=_auth(api_key),
             json=payload,
         )
     response.raise_for_status()
