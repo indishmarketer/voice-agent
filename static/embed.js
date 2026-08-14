@@ -106,7 +106,15 @@
     overlay.classList.add("open");
     if (!iframe) {
       iframe = document.createElement("iframe");
-      iframe.src = account ? origin + "/?account=" + encodeURIComponent(account) : origin + "/";
+      // embed=1 tells the loaded page it is running inside this widget, not
+      // as a normal top-level page - see app.js, which uses it to skip
+      // Cloudflare Turnstile. Turnstile does not work reliably (or at all)
+      // inside a cross-origin iframe on a third-party site, and there is no
+      // way to pre-register every future customer's embedding domain with
+      // it, so the daily/IP/account call quotas are the abuse protection
+      // for this path instead.
+      var qs = account ? "?account=" + encodeURIComponent(account) + "&embed=1" : "?embed=1";
+      iframe.src = origin + "/" + qs;
       iframe.allow = "microphone";
       modal.appendChild(iframe);
     }

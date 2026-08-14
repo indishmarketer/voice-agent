@@ -739,7 +739,7 @@
     return token;
   }
 
-  initTurnstile();
+  if (!isEmbedded()) initTurnstile();
 
   // --- Call lifecycle -------------------------------------------------------
 
@@ -773,11 +773,22 @@
     return new URLSearchParams(location.search).get("account") || "";
   }
 
+  // Set only by embed.js on the iframe it creates - Turnstile does not work
+  // reliably inside a cross-origin iframe on a third-party site (and there
+  // is no way to pre-register every future customer's embedding domain
+  // with it), so this path skips it and leans on the server's daily/IP/
+  // account call quotas instead. See embed.js for the full rationale.
+  function isEmbedded() {
+    return new URLSearchParams(location.search).get("embed") === "1";
+  }
+
   async function requestSession() {
     const owner = ownerToken();
-    // The server skips verification for a valid owner token, so there is no
-    // reason to also make the caller sit through a Turnstile round trip.
-    const turnstileToken = owner ? "" : await getTurnstileToken();
+    const embedded = isEmbedded();
+    // The server skips verification for a valid owner token or an embedded
+    // load, so there is no reason to also make the caller sit through a
+    // Turnstile round trip that would likely just fail anyway.
+    const turnstileToken = (owner || embedded) ? "" : await getTurnstileToken();
     const headers = { "Content-Type": "application/json" };
     if (owner) headers["X-Owner-Token"] = owner;
 
@@ -787,6 +798,7 @@
       body: JSON.stringify({
         turnstile_token: turnstileToken,
         account: accountFromUrl(),
+        embed: embedded,
       }),
     });
     const data = await response.json().catch(() => ({}));

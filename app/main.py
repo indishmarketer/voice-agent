@@ -165,6 +165,11 @@ async def index(request: Request) -> Response:
     account = _resolve_account(request)
     account_id = account["id"] if account else None
     current_branding = branding.get_branding(account_id)
+    # Set only on the iframe embed.js creates - Turnstile does not work
+    # reliably inside a cross-origin iframe on a third-party site, so this
+    # path skips even loading Cloudflare's script rather than let it fail
+    # there every time. See embed.js/app.js for the full rationale.
+    is_embed = request.query_params.get("embed") == "1"
     response = templates.TemplateResponse(
         "index.html",
         {
@@ -172,7 +177,7 @@ async def index(request: Request) -> Response:
             "brand": current_branding["brand_name"],
             "tagline": current_branding["tagline"],
             "agent_name": current_branding["agent_name"],
-            "turnstile_site_key": integrations.turnstile_site_key(),
+            "turnstile_site_key": None if is_embed else integrations.turnstile_site_key(),
             "logo_url": branding.logo_url(account_id, "logo"),
             "favicon_url": branding.logo_url(account_id, "favicon"),
             "apple_touch_icon_url": branding.logo_url(account_id, "apple_touch_icon"),
@@ -257,8 +262,15 @@ async def start_session(request: Request) -> Response:
         security.is_admin(request.headers.get("x-owner-token", ""))
         or bool(admin_ctx and (admin_ctx["is_super"] or admin_ctx["account_id"] == account_id))
     )
+    # Set only by requests from embed.js's iframe (see there for why): skips
+    # Turnstile specifically, since it does not work reliably inside a
+    # cross-origin iframe on a third-party site and there is no way to
+    # pre-register every future customer's embedding domain with it. Unlike
+    # is_owner, this does NOT skip the quota/account checks below - those
+    # are the actual abuse protection for this path.
+    is_embed = bool(body.get("embed"))
 
-    if not is_owner and not await security.verify_turnstile(
+    if not is_owner and not is_embed and not await security.verify_turnstile(
         body.get("turnstile_token", ""), ip
     ):
         return JSONResponse(
