@@ -695,6 +695,7 @@ body {
 .powered-by-highlight {
     color: var(--cta);
     font-weight: 600;
+    text-decoration: none;
 }
 
 /* Respect users who asked their OS for less motion. */
