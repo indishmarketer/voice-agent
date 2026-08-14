@@ -12,6 +12,7 @@ from typing import Optional
 from . import config, store
 
 SETTINGS_KEY_BRAND_NAME = "brand_name"
+SETTINGS_KEY_HEADLINE = "headline"
 SETTINGS_KEY_TAGLINE = "tagline"
 SETTINGS_KEY_AGENT_NAME = "agent_name"
 SETTINGS_KEY_GREETING = "greeting"
@@ -68,6 +69,13 @@ def get_branding(account_id: Optional[int] = None) -> dict[str, str]:
     itself as Indish Marketer" bug. Its seed defaults are derived from its
     own business_name instead, so a fresh account already sounds like it
     belongs to that business before anyone edits a single setting.
+
+    brand_name and headline are deliberately separate: brand_name only
+    drives the browser tab title (and the default seed below), while
+    headline is the big line callers actually see on the dial screen.
+    Conflating the two meant "Welcome to Acme" typed into the one field
+    meant for a short brand name also became the tab title, which reads
+    wrong - see the /admin/settings branding panel.
     """
     if account_id is None:
         default_brand = config.BRAND_NAME
@@ -79,8 +87,10 @@ def get_branding(account_id: Optional[int] = None) -> dict[str, str]:
         default_brand = business
         default_agent = f"{business} Assistant"
         default_greeting = f"Hi, welcome to {business}. How can I help you today?"
+    brand_name = store.get_setting(SETTINGS_KEY_BRAND_NAME, default_brand, account_id)
     return {
-        "brand_name": store.get_setting(SETTINGS_KEY_BRAND_NAME, default_brand, account_id),
+        "brand_name": brand_name,
+        "headline": store.get_setting(SETTINGS_KEY_HEADLINE, brand_name, account_id),
         "tagline": store.get_setting(SETTINGS_KEY_TAGLINE, DEFAULT_TAGLINE, account_id),
         "agent_name": store.get_setting(SETTINGS_KEY_AGENT_NAME, default_agent, account_id),
         "greeting": store.get_setting(SETTINGS_KEY_GREETING, default_greeting, account_id),

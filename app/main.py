@@ -175,6 +175,7 @@ async def index(request: Request) -> Response:
         {
             "request": request,
             "brand": current_branding["brand_name"],
+            "headline": current_branding["headline"],
             "tagline": current_branding["tagline"],
             "agent_name": current_branding["agent_name"],
             "turnstile_site_key": None if is_embed else integrations.turnstile_site_key(),
@@ -1401,6 +1402,7 @@ async def save_admin_settings(request: Request,
 
 BRANDING_TEXT_FIELDS = {
     "brand_name": (branding.SETTINGS_KEY_BRAND_NAME, 120),
+    "headline": (branding.SETTINGS_KEY_HEADLINE, 120),
     "tagline": (branding.SETTINGS_KEY_TAGLINE, 120),
     "agent_name": (branding.SETTINGS_KEY_AGENT_NAME, 120),
     "greeting": (branding.SETTINGS_KEY_GREETING, 500),
@@ -1411,13 +1413,15 @@ MAX_LOGO_BYTES = 5 * 1024 * 1024
 @app.post("/admin/settings/branding")
 async def save_branding(request: Request,
                         brand_name: str = Form(""),
+                        headline: str = Form(""),
                         tagline: str = Form(""),
                         agent_name: str = Form(""),
                         greeting: str = Form(""),
                         logo: Optional[UploadFile] = File(None),
                         admin: dict[str, Any] = Depends(_require_admin)) -> Response:
-    for field_name, value in (("brand_name", brand_name), ("tagline", tagline),
-                              ("agent_name", agent_name), ("greeting", greeting)):
+    for field_name, value in (("brand_name", brand_name), ("headline", headline),
+                              ("tagline", tagline), ("agent_name", agent_name),
+                              ("greeting", greeting)):
         limit = BRANDING_TEXT_FIELDS[field_name][1]
         if len(value) > limit:
             return JSONResponse(
@@ -1437,8 +1441,9 @@ async def save_branding(request: Request,
             return JSONResponse({"error": "That does not look like a valid image."},
                                 status_code=400)
 
-    for field_name, value in (("brand_name", brand_name), ("tagline", tagline),
-                              ("agent_name", agent_name), ("greeting", greeting)):
+    for field_name, value in (("brand_name", brand_name), ("headline", headline),
+                              ("tagline", tagline), ("agent_name", agent_name),
+                              ("greeting", greeting)):
         stripped = value.strip()
         if stripped:
             store.set_setting(BRANDING_TEXT_FIELDS[field_name][0], stripped, admin["account_id"])
