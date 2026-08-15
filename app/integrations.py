@@ -21,6 +21,13 @@ deliberately no fallback to the owner's global ones, or the owner would
 silently keep paying for their traffic. Every other case (the main account,
 and trial/subscription sub-accounts, where the owner is paying either way)
 resolves to the shared global configuration exactly as before this existed.
+
+The two global daily caps (sessions, STT seconds) are the one exception to
+"tuning knobs stay Coolify-only" - they are the platform-wide safety net
+shared by every account at once (see security.enforce_quotas), and the owner
+needs to be able to raise them himself mid-campaign without a redeploy, e.g.
+to open capacity for a promotional push. Still env-fallback like everything
+else here, just editable from /admin/integrations same as the rest.
 """
 from typing import Optional
 
@@ -35,6 +42,8 @@ SETTINGS_KEY_TURNSTILE_SECRET_KEY = "turnstile_secret_key"
 SETTINGS_KEY_POLLINATIONS_MODEL = "pollinations_model"
 SETTINGS_KEY_FISH_MODEL = "fish_model"
 SETTINGS_KEY_AAI_SPEECH_MODEL = "aai_speech_model"
+SETTINGS_KEY_GLOBAL_SESSIONS_PER_DAY = "global_sessions_per_day"
+SETTINGS_KEY_GLOBAL_STT_SECONDS_PER_DAY = "global_stt_seconds_per_day"
 
 
 def assemblyai_api_key() -> str:
@@ -71,6 +80,22 @@ def fish_model() -> str:
 
 def aai_speech_model() -> str:
     return store.get_setting(SETTINGS_KEY_AAI_SPEECH_MODEL, config.AAI_SPEECH_MODEL)
+
+
+def global_sessions_per_day() -> int:
+    raw = store.get_setting(SETTINGS_KEY_GLOBAL_SESSIONS_PER_DAY, "")
+    try:
+        return int(raw) if raw else config.GLOBAL_SESSIONS_PER_DAY
+    except ValueError:
+        return config.GLOBAL_SESSIONS_PER_DAY
+
+
+def global_stt_seconds_per_day() -> int:
+    raw = store.get_setting(SETTINGS_KEY_GLOBAL_STT_SECONDS_PER_DAY, "")
+    try:
+        return int(raw) if raw else config.GLOBAL_STT_SECONDS_PER_DAY
+    except ValueError:
+        return config.GLOBAL_STT_SECONDS_PER_DAY
 
 
 def missing_required() -> list[str]:

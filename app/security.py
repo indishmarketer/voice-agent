@@ -263,13 +263,13 @@ def enforce_quotas(ip_hash: str, visitor_id: str, account_id: Optional[int] = No
     sub-account's callers were being told to go to the platform owner's
     site instead of the business they were actually calling.
     """
-    if store.count_sessions_today() >= config.GLOBAL_SESSIONS_PER_DAY:
+    if store.count_sessions_today() >= integrations.global_sessions_per_day():
         raise Denied(
             "global_daily",
             "The demo has reached its limit for today. Please try again tomorrow "
             f"or reach us at {config.WEBSITE_URL}.",
         )
-    if store.stt_seconds_today() >= config.GLOBAL_STT_SECONDS_PER_DAY:
+    if store.stt_seconds_today() >= integrations.global_stt_seconds_per_day():
         raise Denied(
             "global_minutes",
             "The demo has reached its limit for today. Please try again tomorrow "

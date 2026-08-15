@@ -1327,6 +1327,8 @@ async def admin_integrations_page(request: Request,
         "pollinations_key_hint": _mask_secret(current["pollinations_api_key"]),
         "fish_key_hint": _mask_secret(current["fish_api_key"]),
         "turnstile_secret_hint": _mask_secret(current["turnstile_secret_key"]),
+        "global_sessions_per_day": integrations.global_sessions_per_day(),
+        "global_stt_seconds_per_day": integrations.global_stt_seconds_per_day(),
     })
     return templates.TemplateResponse("admin_integrations.html", ctx)
 
@@ -1564,6 +1566,47 @@ async def save_turnstile_settings(request: Request,
         return error
 
     log.info("admin updated Turnstile keys")
+    return JSONResponse({"ok": True})
+
+
+GLOBAL_LIMIT_FIELDS = {
+    "global_sessions_per_day": (integrations.SETTINGS_KEY_GLOBAL_SESSIONS_PER_DAY, 1, 100_000),
+    "global_stt_seconds_per_day": (integrations.SETTINGS_KEY_GLOBAL_STT_SECONDS_PER_DAY, 60, 10_000_000),
+}
+
+
+@app.post("/admin/integrations/limits")
+async def save_global_limits(request: Request,
+                             _: dict[str, Any] = Depends(_require_super)) -> Response:
+    """The platform-wide daily safety net (security.enforce_quotas) - shared
+    by every account at once, unlike everything else on /admin/settings which
+    is scoped to one account. Kept editable here rather than Coolify-only so
+    the owner can open capacity for a promotional push without a redeploy."""
+    body: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+
+    updates: dict[str, int] = {}
+    for field_name, (settings_key, lo, hi) in GLOBAL_LIMIT_FIELDS.items():
+        value = body.get(field_name)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": f"{field_name} must be a whole number."},
+                                status_code=400)
+        if not (lo <= parsed <= hi):
+            return JSONResponse(
+                {"error": f"{field_name} must be between {lo} and {hi}."},
+                status_code=400,
+            )
+        updates[settings_key] = parsed
+
+    for settings_key, parsed in updates.items():
+        store.set_setting(settings_key, str(parsed))
+
+    log.info("admin updated global daily limits: %s", updates)
     return JSONResponse({"ok": True})
 
 

@@ -137,6 +137,37 @@
         </div>
     </form>
 </div>
+
+<h2 class="section">Platform daily limits</h2>
+<div class="panel">
+    <p class="hint" style="margin-bottom:16px">
+        The shared safety net across every account at once - your main
+        agent and every sub-account draw from the same two budgets below.
+        This is not a per-account trial limit (those are set per sub-account
+        under Accounts); it exists purely to cap the platform's total daily
+        API cost. Raise it when you need more headroom for a push, e.g.
+        before sharing the demo widely.
+    </p>
+    <form id="limits-form">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px;margin-bottom:16px">
+            <div>
+                <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Calls per day (whole platform)</label>
+                <input type="number" min="1" step="1" name="global_sessions_per_day" id="global-sessions-input"
+                       value="{{ global_sessions_per_day }}" style="width:100%">
+            </div>
+            <div>
+                <label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Speech-to-text minutes per day (whole platform)</label>
+                <input type="number" min="1" step="1" name="global_stt_seconds_per_day" id="global-stt-input"
+                       value="{{ (global_stt_seconds_per_day / 60) | round(1) }}" style="width:100%">
+                <div class="hint" style="margin-top:5px">Shown in minutes here, stored as seconds.</div>
+            </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button type="submit">Save limits</button>
+            <span id="limits-out" class="status-msg"></span>
+        </div>
+    </form>
+</div>
 {% endblock %}
 
 {% block script_extra %}
@@ -173,5 +204,33 @@ async function saveForm(formId, outId, path, { clearOnSuccess = false } = {}) {
 saveForm("models-form", "models-out", "/admin/integrations/models");
 saveForm("keys-form", "keys-out", "/admin/integrations/keys", { clearOnSuccess: true });
 saveForm("turnstile-form", "turnstile-out", "/admin/integrations/turnstile");
+
+// Not saveForm() - the STT field is shown/entered in minutes but the
+// backend setting is in seconds (that's what security.py compares against
+// stt_seconds_today()), so it needs converting on the way out.
+document.getElementById("limits-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const out = document.getElementById("limits-out");
+    out.textContent = "Saving…";
+    out.className = "status-msg";
+    const sessionsVal = document.getElementById("global-sessions-input").value;
+    const minutesVal = document.getElementById("global-stt-input").value;
+    const payload = {};
+    if (sessionsVal) payload.global_sessions_per_day = sessionsVal;
+    if (minutesVal) payload.global_stt_seconds_per_day = Math.round(parseFloat(minutesVal) * 60);
+    const res = await fetch(withToken("/admin/integrations/limits"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok) {
+        out.textContent = "Saved. Takes effect on the next call.";
+        out.className = "status-msg";
+    } else {
+        out.textContent = body.error || "Could not save - please try again.";
+        out.className = "status-msg err";
+    }
+});
 </script>
 {% endblock %}
