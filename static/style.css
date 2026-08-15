@@ -1,9 +1,10 @@
-/* Ghost theme: chrome (background, text, branding) is strictly grayscale -
-   black, white, and gradients between them, nothing else. Colour is reserved
-   for things that mean something: the dial button, the end-call button, and
-   the live audio visuals (orb glow, waveform) that show call state. Anything
-   colourful on this page should be answering "what is happening right now",
-   never just decoration.
+/* Indish Marketer brand theme: strictly black and white, no accent colour
+   anywhere - not even for call-state signalling. Where the old ghost theme
+   used colour to mean something (green dial, red end-call, blue speaking
+   glow), that meaning now lives in fill vs. outline and icon shape instead:
+   the dial button is solid (primary/affirmative), the end-call button is
+   outlined (secondary/destructive) - both already visually distinct via
+   their own SVG icon shape too, so nothing is lost by dropping colour.
 
    Theme-aware: dark is the default look, defined on bare :root. A light
    palette is layered on in two places that must stay in sync - a media
@@ -12,26 +13,33 @@
    direction regardless of OS preference. btn-theme-toggle in app.js is what
    sets data-theme. */
 :root {
-    --bg-dark: #060606;
-    --bg-panel: #121212;
+    --bg-dark: #0a0a0a;
+    --bg-panel: #141414;
     --glass: rgba(255, 255, 255, 0.045);
     --glass-border: rgba(255, 255, 255, 0.10);
 
-    /* Branding: monochrome only, per the ghost theme. */
+    /* Branding: monochrome only. */
     --mono-1: #ffffff;
     --mono-2: #9a9a9a;
     --mono-3: #3a3a3a;
 
-    /* Functional colour - status and action, not decoration. */
-    --success: #22c55e;   /* dial button, listening state */
-    --danger: #ef4444;    /* end call, muted state */
-    --danger-hover: #dc2626;
-    --voice: #5b8def;     /* agent-speaking orb glow + waveform */
-    --cta: #5b8def;       /* primary buttons (Confirm) - same accent as voice,
-                             one functional colour rather than two */
+    /* Functional "colour" - now just the max-contrast tone for this theme,
+       applied via fill (primary/affirmative) or outline (secondary/
+       destructive) rather than hue. Kept as separate tokens so each use
+       site still reads as intentional, not a leftover accent-colour name. */
+    --success: var(--mono-1);   /* dial button fill, listening state */
+    --danger: var(--mono-1);    /* end call outline, muted state */
+    --danger-hover: rgba(var(--fg-rgb), 0.12);
+    --voice: rgba(var(--fg-rgb), 0.85);   /* agent-speaking waveform */
+    --cta: var(--mono-1);       /* primary buttons (Confirm) */
+    --cta-text: var(--bg-dark);
 
-    --text-main: #f3f4f6;
-    --text-muted: #8a8a8f;
+    --text-main: #ffffff;
+    --text-muted: #a3a3a3;
+    /* Middle stop of the app-container's black->grey->black gradient - only
+       visible in dark mode; equal to bg-panel in light mode so the gradient
+       collapses to a flat white card instead of showing a stray dark band. */
+    --panel-gradient-mid: #1a1a1a;
 
     /* One RGB triple (not a full colour) so rgba(var(--fg-rgb), alpha) can
        build every translucent "tint of foreground on background" surface -
@@ -43,39 +51,45 @@
 
 @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
-        --bg-dark: #f2f2f4;
+        --bg-dark: #ffffff;
         --bg-panel: #ffffff;
-        --glass: rgba(0, 0, 0, 0.035);
-        --glass-border: rgba(0, 0, 0, 0.10);
-        --mono-1: #1a1a1a;
-        --mono-3: #d8d8d8;
-        --text-main: #17181c;
-        --text-muted: #6b6b70;
-        --fg-rgb: 0, 0, 0;
+        --glass: rgba(10, 10, 10, 0.035);
+        --glass-border: #e2e2e0;
+        --mono-1: #0a0a0a;
+        --mono-3: #e2e2e0;
+        --text-main: #0a0a0a;
+        --text-muted: #4b4b4b;
+        --cta-text: #ffffff;
+        --panel-gradient-mid: #ffffff;
+        --fg-rgb: 10, 10, 10;
     }
 }
 
 :root[data-theme="light"] {
-    --bg-dark: #f2f2f4;
+    --bg-dark: #ffffff;
     --bg-panel: #ffffff;
-    --glass: rgba(0, 0, 0, 0.035);
-    --glass-border: rgba(0, 0, 0, 0.10);
-    --mono-1: #1a1a1a;
-    --mono-3: #d8d8d8;
-    --text-main: #17181c;
-    --text-muted: #6b6b70;
-    --fg-rgb: 0, 0, 0;
+    --glass: rgba(10, 10, 10, 0.035);
+    --glass-border: #e2e2e0;
+    --mono-1: #0a0a0a;
+    --mono-3: #e2e2e0;
+    --text-main: #0a0a0a;
+    --text-muted: #4b4b4b;
+    --cta-text: #ffffff;
+    --panel-gradient-mid: #ffffff;
+    --fg-rgb: 10, 10, 10;
 }
 
 :root[data-theme="dark"] {
-    --bg-dark: #060606;
-    --bg-panel: #121212;
+    --bg-dark: #0a0a0a;
+    --bg-panel: #141414;
     --glass: rgba(255, 255, 255, 0.045);
     --glass-border: rgba(255, 255, 255, 0.10);
     --mono-1: #ffffff;
     --mono-3: #3a3a3a;
-    --text-main: #f3f4f6;
-    --text-muted: #8a8a8f;
+    --text-main: #ffffff;
+    --text-muted: #a3a3a3;
+    --cta-text: #0a0a0a;
+    --panel-gradient-mid: #1a1a1a;
     --fg-rgb: 255, 255, 255;
 }
 
@@ -90,7 +104,7 @@ html, body {
 }
 
 body {
-    font-family: 'Inter', sans-serif;
+    font-family: 'Inter', system-ui, sans-serif;
     background-color: var(--bg-dark);
     color: var(--text-main);
     min-height: 100vh;
@@ -166,11 +180,13 @@ body {
     max-width: 400px;
     height: 100vh;
     max-height: 800px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 30%),
-                var(--bg-panel);
+    /* Black -> dark-grey -> black, per brand spec's gradient rule for
+       hero/dark surfaces - no colour, just depth. */
+    background: linear-gradient(180deg, rgba(var(--fg-rgb),0.03) 0%, transparent 30%),
+                linear-gradient(160deg, var(--bg-panel) 0%, var(--panel-gradient-mid) 50%, var(--bg-panel) 100%);
     position: relative;
     z-index: 1;
-    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
     backdrop-filter: blur(20px);
 }
 
@@ -233,7 +249,8 @@ body {
 }
 
 .brand h1 {
-    font-weight: 600;
+    font-family: 'Space Grotesk', 'Inter', sans-serif;
+    font-weight: 700;
     font-size: 25px;
     letter-spacing: -0.02em;
     margin-bottom: 8px;
@@ -251,16 +268,19 @@ body {
     width: 96px;
     height: 96px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--success), #16a34a);
+    /* Solid fill = the primary/affirmative action, per brand spec. */
+    background: var(--success);
     border: none;
     display: flex;
     justify-content: center;
     align-items: center;
     cursor: pointer;
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45), 0 10px 30px rgba(34, 197, 94, 0.25);
+    box-shadow: 0 0 0 0 rgba(var(--fg-rgb), 0.35), 0 10px 30px rgba(0, 0, 0, 0.25);
     transition: transform 0.2s ease, box-shadow 0.2s ease;
     animation: dialPulse 2.6s ease-out infinite;
 }
+
+.btn-dial svg path { fill: var(--cta-text); }
 
 .btn-dial:hover {
     transform: scale(1.05);
@@ -309,7 +329,7 @@ body {
     position: absolute;
     inset: 0;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(91, 141, 239, 0.45), transparent 72%);
+    background: radial-gradient(circle, rgba(var(--fg-rgb), 0.45), transparent 72%);
     transform: scale(var(--level, 0));
     opacity: var(--level, 0);
     transition: transform 0.05s linear, opacity 0.05s linear;
@@ -337,8 +357,9 @@ body {
 }
 
 .call-header h2 {
+    font-family: 'Space Grotesk', 'Inter', sans-serif;
     font-size: 19px;
-    font-weight: 500;
+    font-weight: 600;
     margin-bottom: 8px;
     letter-spacing: -0.01em;
 }
@@ -388,7 +409,10 @@ body {
     transition: height 0.06s ease-out, background-color 0.2s ease;
 }
 
-.audio-waves.listening .wave { background-color: var(--success); }
+/* Listening/thinking/speaking are told apart by brightness, not hue - full
+   contrast while listening (it matters most, the caller is talking), muted
+   while thinking, mid-strength while the agent replies (.wave default). */
+.audio-waves.listening .wave { background-color: var(--text-main); }
 .audio-waves.thinking .wave { background-color: var(--text-muted); }
 
 .transcript-box {
@@ -475,6 +499,7 @@ body {
 }
 
 .contact-card-title {
+    font-family: 'Space Grotesk', 'Inter', sans-serif;
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 1px;
@@ -517,7 +542,7 @@ body {
 }
 
 .contact-field input.field-filled {
-    border-color: rgba(34, 197, 94, 0.5);
+    border-color: var(--text-main);
 }
 
 .contact-card-actions {
@@ -532,24 +557,27 @@ body {
     font-family: inherit;
     font-size: 13px;
     font-weight: 500;
-    border-radius: 9px;
+    border-radius: 16px;
     padding: 8px 16px;
     cursor: pointer;
-    border: none;
+    border: 1px solid transparent;
     transition: transform 0.1s ease, background-color 0.15s ease, opacity 0.15s ease;
 }
 
+/* Secondary action - black outline, per brand spec. */
 .btn-text {
     background: transparent;
     color: var(--text-muted);
+    border-color: var(--glass-border);
 }
-.btn-text:hover { color: var(--text-main); }
+.btn-text:hover { color: var(--text-main); border-color: var(--text-muted); }
 
+/* Primary action - solid fill. */
 .btn-primary {
     background: var(--cta);
-    color: #fff;
+    color: var(--cta-text);
 }
-.btn-primary:hover { background: #4a7de0; transform: translateY(-1px); }
+.btn-primary:hover { background: var(--text-muted); transform: translateY(-1px); }
 .btn-primary:disabled {
     opacity: 0.5;
     cursor: not-allowed;
@@ -576,19 +604,25 @@ body {
     transition: transform 0.15s ease, background-color 0.2s ease;
 }
 
+/* Outlined, not filled - the secondary/destructive treatment, distinct from
+   the solid dial button without needing colour. */
 .end-call {
-    background: linear-gradient(135deg, var(--danger), var(--danger-hover));
-    box-shadow: 0 8px 22px rgba(239, 68, 68, 0.35);
+    background: var(--danger-hover);
+    border: 1.5px solid var(--danger);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.2);
 }
+
+.end-call svg path { fill: var(--text-main); }
 
 .end-call:hover {
     transform: scale(1.05);
+    background: rgba(var(--fg-rgb), 0.18);
 }
 
 @keyframes dialPulse {
-    0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45), 0 10px 30px rgba(34, 197, 94, 0.25); }
-    70% { box-shadow: 0 0 0 16px rgba(34, 197, 94, 0), 0 10px 30px rgba(34, 197, 94, 0.25); }
-    100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0), 0 10px 30px rgba(34, 197, 94, 0.25); }
+    0% { box-shadow: 0 0 0 0 rgba(var(--fg-rgb), 0.35), 0 10px 30px rgba(0, 0, 0, 0.25); }
+    70% { box-shadow: 0 0 0 16px rgba(var(--fg-rgb), 0), 0 10px 30px rgba(0, 0, 0, 0.25); }
+    100% { box-shadow: 0 0 0 0 rgba(var(--fg-rgb), 0), 0 10px 30px rgba(0, 0, 0, 0.25); }
 }
 
 /* Countdown */
@@ -599,7 +633,7 @@ body {
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
 }
-.call-timer.warning { color: #f59e0b; }
+.call-timer.warning { color: var(--text-main); font-weight: 700; }
 
 /* Mute control */
 .btn-mute {
@@ -611,8 +645,9 @@ body {
 }
 .btn-mute:hover { background-color: rgba(var(--fg-rgb), 0.13); }
 .btn-mute.muted {
-    background-color: var(--danger);
-    border-color: var(--danger);
+    background-color: var(--text-main);
+    border-color: var(--text-main);
+    color: var(--cta-text);
 }
 
 /* Theme toggle: fixed at the viewport level (not inside .app-container,
@@ -666,8 +701,9 @@ body {
 }
 .notice.visible { opacity: 1; transform: translateY(0); }
 .notice.error {
-    background: rgba(239, 68, 68, 0.15);
-    border-color: rgba(239, 68, 68, 0.4);
+    background: var(--bg-panel);
+    border-color: var(--text-main);
+    border-width: 1.5px;
 }
 
 .btn-dial:disabled {
@@ -693,9 +729,10 @@ body {
 }
 
 .powered-by-highlight {
-    color: var(--cta);
+    color: var(--text-main);
     font-weight: 600;
-    text-decoration: none;
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
 /* Respect users who asked their OS for less motion. */

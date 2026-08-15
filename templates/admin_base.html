@@ -14,64 +14,90 @@
     </script>
     <link rel="icon" type="image/png" href="{{ asset('img/favicon.png') }}">
     <link rel="apple-touch-icon" href="{{ asset('img/apple-touch-icon.png') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
     <style>
-        /* Admin uses a richer, more conventional SaaS palette than the ghost
-           monochrome call app - categorical colour on stat-card icon badges
-           is deliberate here (per the reference design), not something the
-           "colour only signals state" rule from the call UI applies to.
-           Light is the default look (matching the reference); dark inverts
-           surfaces/text and keeps the same badge hues, just tuned for
-           contrast on a dark background. */
+        /* Indish Marketer brand theme: strict black and white throughout,
+           no accent colour - not even for status pills or stat-card badges.
+           Where those used to carry meaning through hue (green=success,
+           red=danger, five badge colours), that meaning now lives in fill
+           vs. outline vs. tint instead: a filled pill reads as the
+           affirmative state, an outlined one as neutral/pending. Light is
+           the default look; dark inverts surfaces/text, same structure. */
         :root {
-            --bg: #f6f7fb;
+            --bg: #ffffff;
             --panel: #ffffff;
-            --border: #e8eaf0;
-            --text-main: #14161f;
-            --text-muted: #6b7086;
+            --border: #e2e2e0;
+            --text-main: #0a0a0a;
+            --text-muted: #4b4b4b;
             --sidebar-bg: #ffffff;
-            --sidebar-active-bg: #eef1ff;
-            --hover-bg: #f2f3f8;
-            --primary: #4f5bd5;
-            --primary-hover: #3f4bc4;
-            --success: #16a34a;
-            --success-bg: rgba(22,163,74,.12);
-            --warn: #d97706;
-            --warn-bg: rgba(217,119,6,.12);
-            --danger: #dc2626;
-            --danger-bg: rgba(220,38,38,.12);
-            --badge-purple: #8b5cf6;   --badge-purple-bg: rgba(139,92,246,.13);
-            --badge-blue:   #3b82f6;  --badge-blue-bg: rgba(59,130,246,.13);
-            --badge-green:  #16a34a;  --badge-green-bg: rgba(22,163,74,.13);
-            --badge-orange: #ea8a09;  --badge-orange-bg: rgba(234,138,9,.14);
-            --badge-pink:   #ec4899;  --badge-pink-bg: rgba(236,72,153,.13);
-            --shadow: 0 1px 2px rgba(20,22,40,.04), 0 1px 12px rgba(20,22,40,.04);
+            --sidebar-active-bg: #0a0a0a;
+            --sidebar-active-text: #ffffff;
+            --hover-bg: #f2f2f0;
+            --primary: #0a0a0a;
+            --primary-hover: #262626;
+            --primary-text: #ffffff;
+            --success: #0a0a0a;
+            --success-bg: #f2f2f0;
+            --warn: #0a0a0a;
+            --warn-bg: #f2f2f0;
+            --danger: #0a0a0a;
+            --danger-bg: #f2f2f0;
+            --badge-purple: #0a0a0a;   --badge-purple-bg: #f2f2f0;
+            --badge-blue:   #0a0a0a;  --badge-blue-bg: #f2f2f0;
+            --badge-green:  #0a0a0a;  --badge-green-bg: #f2f2f0;
+            --badge-orange: #0a0a0a;  --badge-orange-bg: #f2f2f0;
+            --badge-pink:   #0a0a0a;  --badge-pink-bg: #f2f2f0;
+            --shadow: none;
             color-scheme: light;
         }
         @media (prefers-color-scheme: dark) {
             :root:not([data-theme="light"]) {
-                --bg: #0b0c11;
-                --panel: #14161d;
-                --border: rgba(255,255,255,.08);
-                --text-main: #f3f4f6;
-                --text-muted: #9497a8;
-                --sidebar-bg: #101117;
-                --sidebar-active-bg: rgba(79,91,213,.18);
-                --hover-bg: rgba(255,255,255,.04);
-                --shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 12px rgba(0,0,0,.25);
+                --bg: #0a0a0a;
+                --panel: #141414;
+                --border: #262626;
+                --text-main: #ffffff;
+                --text-muted: #a3a3a3;
+                --sidebar-bg: #0a0a0a;
+                --sidebar-active-bg: #ffffff;
+                --sidebar-active-text: #0a0a0a;
+                --hover-bg: #1a1a1a;
+                --primary: #ffffff;
+                --primary-hover: #d4d4d4;
+                --primary-text: #0a0a0a;
+                --success: #ffffff; --success-bg: #1a1a1a;
+                --warn: #ffffff; --warn-bg: #1a1a1a;
+                --danger: #ffffff; --danger-bg: #1a1a1a;
+                --badge-purple: #ffffff; --badge-purple-bg: #1a1a1a;
+                --badge-blue:   #ffffff; --badge-blue-bg: #1a1a1a;
+                --badge-green:  #ffffff; --badge-green-bg: #1a1a1a;
+                --badge-orange: #ffffff; --badge-orange-bg: #1a1a1a;
+                --badge-pink:   #ffffff; --badge-pink-bg: #1a1a1a;
+                --shadow: none;
                 color-scheme: dark;
             }
         }
         :root[data-theme="dark"] {
-            --bg: #0b0c11;
-            --panel: #14161d;
-            --border: rgba(255,255,255,.08);
-            --text-main: #f3f4f6;
-            --text-muted: #9497a8;
-            --sidebar-bg: #101117;
-            --sidebar-active-bg: rgba(79,91,213,.18);
-            --hover-bg: rgba(255,255,255,.04);
-            --shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 12px rgba(0,0,0,.25);
+            --bg: #0a0a0a;
+            --panel: #141414;
+            --border: #262626;
+            --text-main: #ffffff;
+            --text-muted: #a3a3a3;
+            --sidebar-bg: #0a0a0a;
+            --sidebar-active-bg: #ffffff;
+            --sidebar-active-text: #0a0a0a;
+            --hover-bg: #1a1a1a;
+            --primary: #ffffff;
+            --primary-hover: #d4d4d4;
+            --primary-text: #0a0a0a;
+            --success: #ffffff; --success-bg: #1a1a1a;
+            --warn: #ffffff; --warn-bg: #1a1a1a;
+            --danger: #ffffff; --danger-bg: #1a1a1a;
+            --badge-purple: #ffffff; --badge-purple-bg: #1a1a1a;
+            --badge-blue:   #ffffff; --badge-blue-bg: #1a1a1a;
+            --badge-green:  #ffffff; --badge-green-bg: #1a1a1a;
+            --badge-orange: #ffffff; --badge-orange-bg: #1a1a1a;
+            --badge-pink:   #ffffff; --badge-pink-bg: #1a1a1a;
+            --shadow: none;
             color-scheme: dark;
         }
         * { box-sizing: border-box; }
@@ -110,7 +136,7 @@
             text-decoration: none; transition: background-color .12s ease, color .12s ease;
         }
         .nav a:hover { background: var(--hover-bg); color: var(--text-main); }
-        .nav a.active { background: var(--sidebar-active-bg); color: var(--primary); }
+        .nav a.active { background: var(--sidebar-active-bg); color: var(--sidebar-active-text); }
         .nav svg { width: 17px; height: 17px; flex-shrink: 0; }
 
         .sidebar-foot {
@@ -119,7 +145,7 @@
         }
         .sidebar-foot .avatar {
             width: 30px; height: 30px; border-radius: 50%;
-            background: var(--primary); color: #fff;
+            background: var(--primary); color: var(--primary-text);
             display: flex; align-items: center; justify-content: center;
             font-size: 12.5px; font-weight: 600; flex-shrink: 0;
         }
@@ -143,7 +169,7 @@
             display: flex; align-items: flex-start; justify-content: space-between;
             gap: 16px; flex-wrap: wrap; margin-bottom: 26px;
         }
-        .topbar h1 { font-size: 21px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; }
+        .topbar h1 { font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 21px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; }
         .topbar .sub { color: var(--text-muted); font-size: 13.5px; }
         .topbar-right { display: flex; align-items: center; gap: 10px; }
 
@@ -178,7 +204,7 @@
         .cards { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
         .card {
             background: var(--panel); border: 1px solid var(--border);
-            border-radius: 14px; padding: 18px 20px; box-shadow: var(--shadow);
+            border-radius: 18px; padding: 18px 20px; box-shadow: var(--shadow);
         }
         .card .icon-badge {
             width: 34px; height: 34px; border-radius: 10px;
@@ -194,13 +220,13 @@
 
         .panel {
             background: var(--panel); border: 1px solid var(--border);
-            border-radius: 14px; padding: 20px 22px; box-shadow: var(--shadow);
+            border-radius: 18px; padding: 20px 22px; box-shadow: var(--shadow);
         }
         .panel p { margin: 0 0 10px; }
         .panel .hint { color: var(--text-muted); font-size: 13px; }
 
         .scroll {
-            overflow-x: auto; border: 1px solid var(--border); border-radius: 14px;
+            overflow-x: auto; border: 1px solid var(--border); border-radius: 18px;
             background: var(--panel); box-shadow: var(--shadow);
         }
         table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 860px; }
@@ -211,17 +237,19 @@
         td.wrap-cell { max-width: 280px; }
         td.mono { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-muted); }
         td.check-cell, th.check-cell { width: 32px; text-align: center; }
-        tr.lead-row.selected { background: var(--sidebar-active-bg); }
+        tr.lead-row.selected { background: var(--hover-bg); }
 
+        /* yes = filled (affirmative), no = flat neutral, warn = outlined -
+           three distinct treatments without relying on hue. */
         .pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px;
-                border-radius: 99px; font-size: 11px; font-weight: 600; }
-        .pill.yes { background: var(--success-bg); color: var(--success); }
+                border-radius: 99px; font-size: 11px; font-weight: 600; border: 1px solid transparent; }
+        .pill.yes { background: var(--text-main); color: var(--bg); }
         .pill.no  { background: var(--hover-bg); color: var(--text-muted); }
-        .pill.warn { background: var(--warn-bg); color: var(--warn); }
+        .pill.warn { background: transparent; color: var(--text-main); border-color: var(--text-main); }
 
         button, .btn {
-            font-family: inherit; background: var(--primary); color: #fff;
-            border: 0; border-radius: 9px; padding: 9px 16px;
+            font-family: inherit; background: var(--primary); color: var(--primary-text);
+            border: 0; border-radius: 16px; padding: 9px 16px;
             font-size: 13px; font-weight: 500; cursor: pointer;
             transition: background-color .12s ease, transform .1s ease;
         }
@@ -231,15 +259,19 @@
             border: 1px solid var(--border); box-shadow: var(--shadow);
         }
         button.ghost:hover { background: var(--hover-bg); }
-        button.danger { background: var(--danger); }
-        button.danger:hover { background: #b91c1c; }
+        /* Destructive action - outlined rather than a second filled colour,
+           so it still reads as "different from the primary action" without
+           needing red. The confirm-dialog it always sits behind
+           (confirmAction() below) is the real safety net either way. */
+        button.danger { background: transparent; color: var(--text-main); border: 1.5px solid var(--text-main); }
+        button.danger:hover { background: var(--hover-bg); }
         button:disabled { opacity: .45; cursor: not-allowed; }
         button.small { padding: 6px 12px; font-size: 12px; }
 
         input[type=text], input[type=email], input[type=date], textarea, select {
             font-family: inherit; font-size: 13.5px; color: var(--text-main);
             background: var(--bg); border: 1px solid var(--border);
-            border-radius: 9px; padding: 9px 11px; outline: none;
+            border-radius: 12px; padding: 9px 11px; outline: none;
             transition: border-color .12s ease;
         }
         input[type=text]:focus, input[type=email]:focus, input[type=date]:focus,
@@ -250,7 +282,7 @@
         select {
             appearance: none; -webkit-appearance: none;
             padding-right: 34px; cursor: pointer;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7086' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%234b4b4b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
             background-position: right 10px center;
         }
@@ -443,7 +475,7 @@
             <button type="button" class="ghost small" data-action="bug" style="width:100%;margin-bottom:8px;text-align:left">Report a bug</button>
             <button type="button" class="ghost small" data-action="feedback" style="width:100%;margin-bottom:8px;text-align:left">Give feedback</button>
             {% if calendar_link %}
-            <a class="btn small" href="{{ calendar_link }}" target="_blank" rel="noopener" style="display:block;width:100%;box-sizing:border-box;text-align:left;text-decoration:none;color:#fff">Book a 1:1 call</a>
+            <a class="btn small" href="{{ calendar_link }}" target="_blank" rel="noopener" style="display:block;width:100%;box-sizing:border-box;text-align:left;text-decoration:none;color:var(--primary-text)">Book a 1:1 call</a>
             {% else %}
             <button type="button" class="ghost small" disabled style="width:100%;text-align:left;opacity:.5">Book a 1:1 call (not set up yet)</button>
             {% endif %}
@@ -465,7 +497,7 @@
 <style>
     #support-fab {
         position: fixed; bottom: 20px; right: 20px; width: 52px; height: 52px;
-        border-radius: 50%; background: var(--primary); color: #fff; border: none;
+        border-radius: 50%; background: var(--primary); color: var(--primary-text); border: none;
         box-shadow: var(--shadow); cursor: pointer; display: flex; align-items: center;
         justify-content: center; z-index: 200;
     }

@@ -14,27 +14,33 @@
             }
         } catch (_) {}
     </script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #f6f7fb; --panel: #ffffff; --border: #e8eaf0;
-            --text-main: #14161f; --text-muted: #6b7086;
-            --primary: #4f5bd5; --primary-hover: #3f4bc4;
-            --success: #16a34a; --success-bg: rgba(22,163,74,.12);
-            --danger: #dc2626; --danger-bg: rgba(220,38,38,.12);
-            --shadow: 0 1px 2px rgba(20,22,40,.04), 0 1px 12px rgba(20,22,40,.04);
+            --bg: #ffffff; --panel: #ffffff; --border: #e2e2e0;
+            --text-main: #0a0a0a; --text-muted: #4b4b4b;
+            --primary: #0a0a0a; --primary-hover: #262626; --primary-text: #ffffff;
+            --success: #0a0a0a; --success-bg: #f2f2f0;
+            --danger: #0a0a0a; --danger-bg: #f2f2f0;
+            --shadow: none;
             color-scheme: light;
         }
         @media (prefers-color-scheme: dark) {
             :root:not([data-theme="light"]) {
-                --bg: #0b0c11; --panel: #14161d; --border: rgba(255,255,255,.08);
-                --text-main: #f3f4f6; --text-muted: #9497a8;
+                --bg: #0a0a0a; --panel: #141414; --border: #262626;
+                --text-main: #ffffff; --text-muted: #a3a3a3;
+                --primary: #ffffff; --primary-hover: #d4d4d4; --primary-text: #0a0a0a;
+                --success: #ffffff; --success-bg: #1a1a1a;
+                --danger: #ffffff; --danger-bg: #1a1a1a;
                 color-scheme: dark;
             }
         }
         :root[data-theme="dark"] {
-            --bg: #0b0c11; --panel: #14161d; --border: rgba(255,255,255,.08);
-            --text-main: #f3f4f6; --text-muted: #9497a8;
+            --bg: #0a0a0a; --panel: #141414; --border: #262626;
+            --text-main: #ffffff; --text-muted: #a3a3a3;
+            --primary: #ffffff; --primary-hover: #d4d4d4; --primary-text: #0a0a0a;
+            --success: #ffffff; --success-bg: #1a1a1a;
+            --danger: #ffffff; --danger-bg: #1a1a1a;
             color-scheme: dark;
         }
         * { box-sizing: border-box; }
@@ -45,10 +51,10 @@
         }
         .card {
             width: 100%; max-width: 460px; background: var(--panel);
-            border: 1px solid var(--border); border-radius: 16px;
+            border: 1px solid var(--border); border-radius: 20px;
             padding: 32px 28px; box-shadow: var(--shadow);
         }
-        h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: -0.01em; text-align: center; }
+        h1 { font-family: 'Space Grotesk', 'Inter', sans-serif; font-weight: 700; font-size: 22px; margin: 0 0 6px; letter-spacing: -0.01em; text-align: center; }
         p.lead { color: var(--text-muted); margin: 0 0 22px; font-size: 14px; text-align: center; }
         .pill {
             display: inline-flex; align-items: center; gap: 6px;
@@ -60,14 +66,14 @@
         input, textarea, select {
             width: 100%; font-family: inherit; font-size: 14px; color: var(--text-main);
             background: var(--bg); border: 1px solid var(--border);
-            border-radius: 9px; padding: 10px 12px; outline: none;
+            border-radius: 12px; padding: 10px 12px; outline: none;
         }
         input:focus, textarea:focus, select:focus { border-color: var(--primary); }
         textarea { resize: vertical; min-height: 70px; }
         button {
             width: 100%; margin-top: 22px; font-family: inherit;
-            background: var(--primary); color: #fff; border: 0;
-            border-radius: 10px; padding: 12px 16px; font-size: 14.5px;
+            background: var(--primary); color: var(--primary-text); border: 0;
+            border-radius: 16px; padding: 12px 16px; font-size: 14.5px;
             font-weight: 600; cursor: pointer;
         }
         button:hover { background: var(--primary-hover); }
@@ -82,7 +88,7 @@
         .stat-row {
             display: flex; align-items: center; gap: 14px;
             background: var(--bg); border: 1px solid var(--border);
-            border-radius: 12px; padding: 11px 16px; margin-bottom: 22px;
+            border-radius: 16px; padding: 11px 16px; margin-bottom: 22px;
         }
         .stat-item { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
         .stat-icon {
@@ -99,7 +105,7 @@
     <div class="card">
         <div class="stat-row">
             <div class="stat-item">
-                <div class="stat-icon" style="background: rgba(79,91,213,.12); color: var(--primary);">
+                <div class="stat-icon" style="background: var(--success-bg); color: var(--primary);">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 </div>
                 {% if spots_left > 0 %}

@@ -5,21 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign in — Voice Agent Admin</title>
     <link rel="icon" type="image/png" href="{{ asset('img/favicon.png') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #f6f7fb; --panel: #ffffff; --border: #e8eaf0;
-            --text-main: #14161f; --text-muted: #6b7086;
-            --primary: #4f5bd5; --primary-hover: #3f4bc4;
-            --danger: #dc2626; --success: #16a34a;
-            --shadow: 0 1px 2px rgba(20,22,40,.04), 0 1px 12px rgba(20,22,40,.04);
+            --bg: #ffffff; --panel: #ffffff; --border: #e2e2e0;
+            --text-main: #0a0a0a; --text-muted: #4b4b4b;
+            --primary: #0a0a0a; --primary-hover: #262626; --primary-text: #ffffff;
+            --danger: #0a0a0a; --success: #0a0a0a;
+            --shadow: none;
             color-scheme: light;
         }
         @media (prefers-color-scheme: dark) {
             :root {
-                --bg: #0b0c11; --panel: #14161d; --border: rgba(255,255,255,.08);
-                --text-main: #f3f4f6; --text-muted: #9497a8;
-                --shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 12px rgba(0,0,0,.25);
+                --bg: #0a0a0a; --panel: #141414; --border: #262626;
+                --text-main: #ffffff; --text-muted: #a3a3a3;
+                --primary: #ffffff; --primary-hover: #d4d4d4; --primary-text: #0a0a0a;
+                --danger: #ffffff; --success: #ffffff;
+                --shadow: none;
                 color-scheme: dark;
             }
         }
@@ -31,22 +33,22 @@
         }
         .card {
             width: 100%; max-width: 360px; background: var(--panel);
-            border: 1px solid var(--border); border-radius: 16px;
+            border: 1px solid var(--border); border-radius: 20px;
             padding: 32px 28px; box-shadow: var(--shadow); text-align: center;
         }
         .card img { width: 48px; height: 48px; border-radius: 13px; margin-bottom: 14px; }
-        h1 { font-size: 18px; font-weight: 700; margin: 0 0 6px; }
+        h1 { font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 18px; font-weight: 700; margin: 0 0 6px; }
         p.hint { color: var(--text-muted); font-size: 13.5px; margin: 0 0 20px; }
         input[type=email] {
             width: 100%; font-family: inherit; font-size: 13.5px; color: var(--text-main);
             background: var(--bg); border: 1px solid var(--border);
-            border-radius: 9px; padding: 10px 12px; outline: none; margin-bottom: 14px;
+            border-radius: 12px; padding: 10px 12px; outline: none; margin-bottom: 14px;
             transition: border-color .12s ease;
         }
         input[type=email]:focus { border-color: var(--primary); }
         button {
-            width: 100%; font-family: inherit; background: var(--primary); color: #fff;
-            border: 0; border-radius: 9px; padding: 11px 16px;
+            width: 100%; font-family: inherit; background: var(--primary); color: var(--primary-text);
+            border: 0; border-radius: 16px; padding: 11px 16px;
             font-size: 13.5px; font-weight: 600; cursor: pointer;
             transition: background-color .12s ease;
         }
