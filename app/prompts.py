@@ -151,6 +151,9 @@ Rules:
 - Use null for anything not clearly stated. Never guess or invent.
 - Emails are often spelled out in speech ("john at gmail dot com"). Convert them
   to normal form ("john@gmail.com").
+- Write "name" in Latin/English letters only, even if the caller spoke Hindi
+  or another language - transliterate phonetically (e.g. "शुभजीत" becomes
+  "Shubhajit"). Never output Devanagari or any other non-Latin script.
 - "problem" is one sentence describing what they need help with.
 - "interest" is one of: automation, ai_agents, lead_generation, content,
   training, other, unknown."""
@@ -170,6 +173,11 @@ Rules:
 - Emails are often spoken aloud ("john at gmail dot com") - convert to normal
   form ("john@gmail.com"). If what you get clearly is not a valid email shape
   even after conversion, use null rather than guessing.
+- Write "name" in Latin/English letters only, even if the caller spoke Hindi
+  or another language - transliterate phonetically (e.g. "शुभजीत" becomes
+  "Shubhajit"). Never output Devanagari or any other non-Latin script. Emails
+  must always be Latin letters/digits/symbols only, regardless of what
+  language the caller spoke.
 - Phone numbers: strip filler words, keep only the digits and a leading + if
   given.
 - "declined" is true only if the caller clearly refused or said not to contact
@@ -195,4 +203,8 @@ Rules:
 - If the caller said no, or seemed unsure, with no correction given, set
   "confirmed" to false and use null for name/email/phone.
 - Emails are often spoken aloud ("john at gmail dot com") - convert to normal
-  form ("john@gmail.com")."""
+  form ("john@gmail.com").
+- Write "name" in Latin/English letters only, even if the caller spoke Hindi
+  or another language - transliterate phonetically (e.g. "शुभजीत" becomes
+  "Shubhajit"). Never output Devanagari or any other non-Latin script. Emails
+  must always be Latin letters/digits/symbols only."""
