@@ -5,6 +5,12 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:
+    pass
+
 
 def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
@@ -115,8 +121,18 @@ BRAND_NAME = _env("BRAND_NAME", "Indish Marketer")
 WEBSITE_URL = _env("WEBSITE_URL", "https://indishmarketer.com")
 GREETING = _env("GREETING", "Hi, welcome to Indish Marketer. How can I help you today?")
 
-KNOWLEDGE_DIR = Path(_env("KNOWLEDGE_DIR", str(BASE_DIR / "knowledge")))
-DATA_DIR = Path(_env("DATA_DIR", str(BASE_DIR / "data")))
+_raw_knowledge = _env("KNOWLEDGE_DIR")
+if _raw_knowledge and (os.name != "nt" or not _raw_knowledge.startswith("/app")):
+    KNOWLEDGE_DIR = Path(_raw_knowledge)
+else:
+    KNOWLEDGE_DIR = BASE_DIR / "knowledge"
+
+_raw_data = _env("DATA_DIR")
+if _raw_data and (os.name != "nt" or not _raw_data.startswith("/app")):
+    DATA_DIR = Path(_raw_data)
+else:
+    DATA_DIR = BASE_DIR / "data"
+
 DB_PATH = DATA_DIR / "agent.db"
 
 # If the whole knowledge base fits under this many characters we inline all of
